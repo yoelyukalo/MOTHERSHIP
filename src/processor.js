@@ -1,9 +1,9 @@
 /**
  * MOTHERSHIP — Media Processor
  *
- * Central dispatcher for image/video ingestion. Given a file and a mode
- * ('vision' | 'audio' | 'both'), it runs the right adapters, writes the
- * result to the messages table, and returns a summary.
+ * Central dispatcher for image/video/pdf/audio/text ingestion. Given a file
+ * and a mode ('vision' | 'audio' | 'both'), it runs the right adapters,
+ * writes the result to the messages table, and returns a summary.
  */
 
 const path = require('path');
@@ -14,11 +14,17 @@ const audio = require('./audio');
 
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'];
+const PDF_EXTS = ['.pdf'];
+const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.opus', '.oga'];
+const TEXT_EXTS = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.html', '.htm', '.yml', '.yaml', '.srt', '.vtt'];
 
 function kindFor(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (IMAGE_EXTS.includes(ext)) return 'image';
   if (VIDEO_EXTS.includes(ext)) return 'video';
+  if (PDF_EXTS.includes(ext)) return 'pdf';
+  if (AUDIO_EXTS.includes(ext)) return 'audio';
+  if (TEXT_EXTS.includes(ext)) return 'text';
   return null;
 }
 
@@ -92,11 +98,64 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }
   return { kind: 'video', mode, vision: visionResult, transcript, errors: errors.map(e => e.stage), messageId };
 }
 
+async function processPdf(filePath, { source, baseMeta = {} }) {
+  const pdf = require('./pdf');
+  const r = await pdf.processPdfFile(filePath, { source, baseMeta });
+  return {
+    kind: 'pdf',
+    title: r.title,
+    pageCount: r.pageCount,
+    text: r.text,
+    messageId: r.messageId,
+    byteSize: r.byteSize
+  };
+}
+
+async function processAudio(filePath, { source, baseMeta = {} }) {
+  const fs = require('fs');
+  const audioMod = require('./audio');
+  const transcript = await audioMod.transcribeAudioFile(filePath);
+  const title = path.basename(filePath);
+  const size = fs.statSync(filePath).size;
+  const content = `[Audio] ${title}\n\nTranscript:\n${transcript}`;
+  const messageId = db.addMessage(content, source, 'audio-transcript', {
+    ...baseMeta,
+    filepath: filePath,
+    filename: title,
+    byte_size: size,
+    transcript
+  });
+  return { kind: 'audio', title, transcript, messageId, byteSize: size };
+}
+
+async function processText(filePath, { source, baseMeta = {} }) {
+  const fs = require('fs');
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const title = path.basename(filePath);
+  const size = fs.statSync(filePath).size;
+  const stored = `[Text] ${title}\n\n${content.slice(0, 40000)}`;
+  const truncated = content.length > 40000;
+  const messageId = db.addMessage(stored, source, 'text-file', {
+    ...baseMeta,
+    filepath: filePath,
+    filename: title,
+    byte_size: size,
+    text_truncated: truncated
+  });
+  return { kind: 'text', title, content, messageId, byteSize: size };
+}
+
 async function processFile(filePath, { mode = 'vision', source = 'file-drop', baseMeta = {} } = {}) {
   const kind = kindFor(filePath);
   if (kind === 'image') return processImage(filePath, { source, baseMeta });
   if (kind === 'video') return processVideo(filePath, { mode, source, baseMeta });
+  if (kind === 'pdf')   return processPdf(filePath, { source, baseMeta });
+  if (kind === 'audio') return processAudio(filePath, { source, baseMeta });
+  if (kind === 'text')  return processText(filePath, { source, baseMeta });
   return null;
 }
 
-module.exports = { processFile, processImage, processVideo, kindFor, IMAGE_EXTS, VIDEO_EXTS };
+module.exports = {
+  processFile, processImage, processVideo, processPdf, processAudio, processText,
+  kindFor, IMAGE_EXTS, VIDEO_EXTS, PDF_EXTS, AUDIO_EXTS, TEXT_EXTS
+};
