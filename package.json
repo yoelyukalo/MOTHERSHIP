@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js --dev"
+    "dev": "node server.js --dev",
+    "test": "node --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",
