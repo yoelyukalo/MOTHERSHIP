@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.env.premigration
+downloads/
+inbox/*
+!inbox/.gitkeep
+tests/.tmp-*.db
+*.db.corrupted
+.claude/
+launch/
