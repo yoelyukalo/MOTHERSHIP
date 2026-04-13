@@ -74,6 +74,21 @@ async function init() {
   db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_category ON mirror_entries(category)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_active ON mirror_entries(superseded_by)`);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS wiki_entries (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL UNIQUE,
+      summary TEXT NOT NULL,
+      source_ids TEXT DEFAULT '[]',
+      tags TEXT DEFAULT '[]',
+      embedding BLOB,
+      contradictions TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_topic ON wiki_entries(topic)`);
+
   save();
   return db;
 }
@@ -240,9 +255,67 @@ function updateMirrorEntryConfidence(id, newConfidence) {
   save();
 }
 
+// --- Wiki Entries ---
+
+function addWikiEntry({ topic, summary, source_ids = [], tags = [], embedding = null, contradictions = null }) {
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO wiki_entries (id, topic, summary, source_ids, tags, embedding, contradictions)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, topic, summary, JSON.stringify(source_ids), JSON.stringify(tags), embedding, contradictions]
+  );
+  save();
+  return id;
+}
+
+function getWikiEntries({ topic = null, limit = 500 } = {}) {
+  let q = 'SELECT * FROM wiki_entries WHERE 1=1';
+  const p = [];
+  if (topic) { q += ' AND topic = ?'; p.push(topic); }
+  q += ' ORDER BY updated_at DESC LIMIT ?';
+  p.push(limit);
+
+  const stmt = db.prepare(q);
+  stmt.bind(p);
+  const rows = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    row.source_ids = JSON.parse(row.source_ids || '[]');
+    row.tags = JSON.parse(row.tags || '[]');
+    rows.push(row);
+  }
+  stmt.free();
+  return rows;
+}
+
+function getAllWikiEntries() { return getWikiEntries({ limit: 10000 }); }
+
+function updateWikiEntry(id, { summary, source_ids, tags, embedding, contradictions }) {
+  db.run(
+    `UPDATE wiki_entries
+     SET summary = COALESCE(?, summary),
+         source_ids = COALESCE(?, source_ids),
+         tags = COALESCE(?, tags),
+         embedding = COALESCE(?, embedding),
+         contradictions = COALESCE(?, contradictions),
+         updated_at = datetime('now')
+     WHERE id = ?`,
+    [
+      summary ?? null,
+      source_ids ? JSON.stringify(source_ids) : null,
+      tags ? JSON.stringify(tags) : null,
+      embedding ?? null,
+      contradictions ?? null,
+      id
+    ]
+  );
+  save();
+}
+
 module.exports = {
   init, save, addMessage, getMessages, getMessageCount,
   getSourceCounts, getCategoryCounts, log, getLogs,
   getConfig, setConfig,
-  addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence
+  addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence,
+  addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry
 };
