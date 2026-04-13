@@ -25,7 +25,7 @@ function kindFor(filePath) {
 async function processImage(filePath, { source, baseMeta = {} }) {
   const visionResult = await vision.analyzeImage(filePath);
   const content = `[Image] ${visionResult.description || ''}${visionResult.onScreenText ? `\n\nOn-screen text:\n${visionResult.onScreenText}` : ''}`;
-  db.addMessage(content, source, 'media-image', {
+  const messageId = db.addMessage(content, source, 'media-image', {
     ...baseMeta,
     filepath: filePath,
     filename: path.basename(filePath),
@@ -33,7 +33,7 @@ async function processImage(filePath, { source, baseMeta = {} }) {
     vision: visionResult,
     links: visionResult.links || []
   });
-  return { kind: 'image', mode: 'vision', vision: visionResult };
+  return { kind: 'image', mode: 'vision', vision: visionResult, messageId };
 }
 
 async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }) {
@@ -78,7 +78,7 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }
 
   const links = visionResult?.links || [];
 
-  db.addMessage(content, source, 'media-video', {
+  const messageId = db.addMessage(content, source, 'media-video', {
     ...baseMeta,
     filepath: filePath,
     filename: path.basename(filePath),
@@ -89,7 +89,7 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }
     partial_errors: errors.length ? errors.map(e => ({ stage: e.stage, message: e.err.message, status: e.err.status, code: e.err.cause?.code })) : undefined
   });
 
-  return { kind: 'video', mode, vision: visionResult, transcript, errors: errors.map(e => e.stage) };
+  return { kind: 'video', mode, vision: visionResult, transcript, errors: errors.map(e => e.stage), messageId };
 }
 
 async function processFile(filePath, { mode = 'vision', source = 'file-drop', baseMeta = {} } = {}) {

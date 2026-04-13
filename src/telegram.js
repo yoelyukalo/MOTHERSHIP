@@ -15,12 +15,19 @@ const processor = require('./processor');
 const url = require('./url');
 const ytdlp = require('./ytdlp');
 const conversation = require('./conversation');
+const hooks = require('./conversation-hooks');
 
 // Helper: send a Mothership reply, chunked to Telegram's 4096-char limit,
 // and persist it as a 'mothership' source row so conversation history sees it.
 async function sendMothershipReply(chatId, replyToId, text, baseMeta = {}) {
   if (!text) return;
-  db.addMessage(text, 'mothership', 'reply', { ...baseMeta, in_reply_to: replyToId });
+  const replyId = db.addMessage(text, 'mothership', 'reply', { ...baseMeta, in_reply_to: replyToId });
+  // Fire-and-forget post-response synthesis. Errors are logged inside the hook.
+  hooks.postResponse({
+    userText: baseMeta._userText || '',
+    assistantText: text,
+    sourceId: replyId
+  }).catch(() => {});
   const CHUNK = 3900;
   for (let i = 0; i < text.length; i += CHUNK) {
     const chunk = text.slice(i, i + CHUNK);
@@ -145,7 +152,7 @@ function init() {
         bot.sendChatAction(chatId, 'typing').catch(() => {});
         try {
           const reply = await conversation.respond(msg.text, { contextKind: 'text' });
-          await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from });
+          await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from, _userText: msg.text });
         } catch (err) {
           console.error('  ⚠ Conversation failed:', err.message);
           bot.sendMessage(chatId, `⚠ Mothership couldn't respond: ${err.message}`, { reply_to_message_id: msg.message_id }).catch(() => {});
@@ -207,6 +214,10 @@ function init() {
             continue;
           }
 
+          if (result?.messageId) {
+            const ingContent = [result?.transcript, result?.vision?.description].filter(Boolean).join('\n\n');
+            if (ingContent) hooks.postIngestion({ content: ingContent, sourceId: result.messageId }).catch(() => {});
+          }
           const parts = [`🎬 ${downloaded.meta.title || u}`];
           if (downloaded.meta.uploader) parts.push(`by ${downloaded.meta.uploader}`);
           if (result?.transcript) parts.push(`\n🎧 ${result.transcript.slice(0, 1500)}${result.transcript.length > 1500 ? '…' : ''}`);
@@ -217,12 +228,13 @@ function init() {
           try {
             const r = await withRetry(() => url.processUrl(u), 'URL summary');
             results.push(`🔗 ${r.title || r.url}\n${r.summary}`);
-            db.addMessage(
+            const linkMsgId = db.addMessage(
               `[Link] ${r.title || r.url}\n\n${r.summary}`,
               'telegram',
               'link-summary',
               { ...baseMeta, source_url: r.url, title: r.title, description: r.description }
             );
+            hooks.postIngestion({ content: r.summary, sourceId: linkMsgId }).catch(() => {});
           } catch (err) {
             console.error(`  ⚠ URL summary failed for ${u}:`, err.message);
             results.push(`⚠ ${u}\nLink summary failed: ${err.message}`);
@@ -237,7 +249,7 @@ function init() {
       try {
         const sourceHint = `Yoel just sent ${urls.length === 1 ? 'a link' : `${urls.length} links`}. Here is the extracted content (title, transcript, vision read, summary):`;
         const reply = await conversation.respond(extracted, { contextKind: 'link', sourceHint });
-        await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from, links: urls });
+        await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from, links: urls, _userText: msg.text });
         bot.deleteMessage(chatId, sent.message_id).catch(() => {});
       } catch (err) {
         console.error('  ⚠ Conversation (link) failed:', err.message);
@@ -284,6 +296,10 @@ function init() {
       if (result?.vision?.links?.length) parts.push(`LINKS: ${result.vision.links.join(', ')}`);
       const extracted = parts.join('\n\n');
 
+      if (result?.messageId && extracted) {
+        hooks.postIngestion({ content: extracted, sourceId: result.messageId }).catch(() => {});
+      }
+
       if (!extracted) {
         bot.editMessageText('✔ Processed (no extractable content).', { chat_id: chatId, message_id: msgId });
         return;
@@ -294,7 +310,7 @@ function init() {
       try {
         const sourceHint = `Yoel just sent ${entry.kind === 'video' ? 'a video' : 'an image'}. Here is what was extracted:`;
         const reply = await conversation.respond(extracted, { contextKind: entry.kind, sourceHint });
-        await sendMothershipReply(chatId, entry.baseMeta.telegram_message_id, reply, entry.baseMeta);
+        await sendMothershipReply(chatId, entry.baseMeta.telegram_message_id, reply, { ...entry.baseMeta, _userText: extracted });
         bot.deleteMessage(chatId, msgId).catch(() => {});
       } catch (convErr) {
         console.error('  ⚠ Conversation (media) failed:', convErr.message);
