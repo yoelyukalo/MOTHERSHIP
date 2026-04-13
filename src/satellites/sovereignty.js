@@ -21,7 +21,7 @@ const LIMITED_TABLES = new Set([
 
 class SovereigntyViolation extends Error {
   constructor(sql) {
-    super(`SovereigntyViolation: write attempted on a satellite DB via the wrapped handle: ${truncate(sql)}`);
+    super(`SovereigntyViolation: non-read SQL attempted on a satellite DB via the wrapped handle: ${truncate(sql)}`);
     this.name = 'SovereigntyViolation';
   }
 }
@@ -68,24 +68,27 @@ function checkRead(sql, visibility) {
   }
 }
 
+// Only classified reads pass. Writes AND unclassified statements (transaction
+// control, savepoints, anything the classifier doesn't explicitly recognize
+// as a read) throw SovereigntyViolation. Default-deny is intentional: a
+// future SQL construct we don't recognize must not silently reach rawDb.
+function gate(sql, visibility) {
+  if (classify(sql) !== 'read') throw new SovereigntyViolation(sql);
+  checkRead(sql, visibility);
+}
+
 function wrap(rawDb, { visibility = 'full' } = {}) {
   return {
     exec(sql) {
-      const kind = classify(sql);
-      if (kind === 'write') throw new SovereigntyViolation(sql);
-      checkRead(sql, visibility);
+      gate(sql, visibility);
       return rawDb.exec(sql);
     },
     run(sql, params) {
-      const kind = classify(sql);
-      if (kind === 'write') throw new SovereigntyViolation(sql);
-      checkRead(sql, visibility);
+      gate(sql, visibility);
       return rawDb.run(sql, params);
     },
     prepare(sql) {
-      const kind = classify(sql);
-      if (kind === 'write') throw new SovereigntyViolation(sql);
-      checkRead(sql, visibility);
+      gate(sql, visibility);
       return rawDb.prepare(sql);
     }
   };

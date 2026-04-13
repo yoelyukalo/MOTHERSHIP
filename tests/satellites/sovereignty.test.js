@@ -86,3 +86,32 @@ test('sovereignty — writes are blocked regardless of visibility', () => {
     );
   }
 });
+
+test('sovereignty — unclassified SQL (BEGIN / ROLLBACK / SAVEPOINT) is blocked', () => {
+  const wrapped = sovereignty.wrap(fresh(), { visibility: 'full' });
+  for (const sql of ['BEGIN', 'BEGIN TRANSACTION', 'COMMIT', 'ROLLBACK', 'SAVEPOINT s1', 'RELEASE s1']) {
+    assert.throws(
+      () => wrapped.exec(sql),
+      /SovereigntyViolation/,
+      `should block: ${sql}`
+    );
+    assert.throws(
+      () => wrapped.run(sql),
+      /SovereigntyViolation/,
+      `should block: ${sql}`
+    );
+    assert.throws(
+      () => wrapped.prepare(sql),
+      /SovereigntyViolation/,
+      `should block: ${sql}`
+    );
+  }
+});
+
+test('sovereignty — PRAGMA carve-out under limited visibility', () => {
+  const wrapped = sovereignty.wrap(fresh(), { visibility: 'limited' });
+  // PRAGMA statements have no FROM clause and are treated as metadata —
+  // the limited tier allows them for health checks and schema inspection.
+  const res = wrapped.exec('PRAGMA table_info(satellite_meta)');
+  assert.ok(Array.isArray(res));
+});
