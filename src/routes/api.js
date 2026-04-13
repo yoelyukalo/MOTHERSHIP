@@ -8,6 +8,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../database');
 const mirror = require('../mirror');
+const obsidian = require('../exporters/obsidian');
+const retriever = require('../memory/retriever');
 
 // --- Status ---
 
@@ -87,6 +89,32 @@ router.post('/mirror/resonance', (req, res) => {
   if (!content) return res.status(400).json({ error: 'content is required' });
   const entry = mirror.logResonance(type || 'insight', content, score || 0, tags || []);
   res.json(entry);
+});
+
+// --- Quantum Mirror v2 ---
+
+router.get('/mirror/entries', (req, res) => {
+  const { category, limit } = req.query;
+  res.json(db.getMirrorEntries({
+    category: category || null,
+    activeOnly: true,
+    limit: parseInt(limit) || 100
+  }));
+});
+
+router.get('/wiki/entries', (req, res) => {
+  res.json(db.getAllWikiEntries());
+});
+
+router.post('/export', async (req, res) => {
+  try { res.json(await obsidian.exportAll()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/briefing', async (req, res) => {
+  const { topic } = req.body;
+  try { res.json({ block: await retriever.buildContextBlock(topic || 'briefing') }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

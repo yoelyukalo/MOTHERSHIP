@@ -109,6 +109,67 @@ function init() {
       telegram_date: msg.date
     };
 
+    // Slash commands — dispatch BEFORE photo/video/text branches
+    if (msg.text && msg.text.startsWith('/')) {
+      const cmd = msg.text.trim().split(/\s+/)[0];
+      const arg = msg.text.trim().slice(cmd.length).trim();
+
+      if (cmd === '/export') {
+        const obsidian = require('./exporters/obsidian');
+        try {
+          const r = await obsidian.exportAll();
+          await bot.sendMessage(chatId,
+            r.skipped
+              ? '⚠ OBSIDIAN_VAULT_PATH not set.'
+              : `✔ Exported ${r.mirror} mirror entries and ${r.wiki} wiki entries.`,
+            { reply_to_message_id: msg.message_id });
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Export failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
+
+      if (cmd === '/mirror') {
+        const rows = db.getMirrorEntries({ activeOnly: true, limit: 30 });
+        const byCat = {};
+        for (const r of rows) (byCat[r.category] ||= []).push(r);
+        const lines = ['🪞 *Quantum Mirror (top 30 active)*'];
+        for (const [cat, list] of Object.entries(byCat)) {
+          lines.push(`\n*${cat}*`);
+          for (const e of list.slice(0, 5)) {
+            lines.push(`- (${e.confidence.toFixed(2)}) ${e.content}`);
+          }
+        }
+        await bot.sendMessage(chatId, lines.join('\n').slice(0, 4000), { reply_to_message_id: msg.message_id }).catch(() => {});
+        return;
+      }
+
+      if (cmd === '/briefing') {
+        const retriever = require('./memory/retriever');
+        const topic = arg || 'what should Yoel focus on today';
+        try {
+          const block = await retriever.buildContextBlock(topic, { mirrorTopK: 5, wikiTopK: 5 });
+          await bot.sendMessage(chatId, block.slice(0, 4000) || '(nothing relevant found)', { reply_to_message_id: msg.message_id });
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Briefing failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
+
+      if (cmd === '/healthcheck') {
+        try {
+          const hc = require('./health-check');
+          const r = await hc.runNow();
+          await bot.sendMessage(chatId,
+            `🩺 Health check: ${r.contradictions} contradictions, ${r.decayed} decayed, ${r.gaps} gaps.`,
+            { reply_to_message_id: msg.message_id });
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Health check failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
+    }
+
     // PHOTO — ask mode, then process
     if (msg.photo && msg.photo.length) {
       try {
