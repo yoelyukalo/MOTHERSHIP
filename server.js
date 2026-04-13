@@ -15,6 +15,8 @@ const db = require('./src/database');
 const telegram = require('./src/telegram');
 const watcher = require('./src/watcher');
 const apiRoutes = require('./src/routes/api');
+const migrate = require('./src/migrate-legacy-mirror');
+const healthcheck = require('./src/health-check');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -51,6 +53,10 @@ async function boot() {
   await db.init();
   console.log('  ✔ Database initialized');
 
+  // 1a. Migrate legacy mirror entries (no-op if already done)
+  const migratedCount = await migrate.runIfNeeded();
+  if (migratedCount > 0) console.log(`  ✔ Migrated ${migratedCount} legacy mirror entries`);
+
   // 2. Start Telegram bot (if configured)
   const telegramOk = telegram.init();
   if (telegramOk) {
@@ -63,7 +69,11 @@ async function boot() {
   watcher.init(inboxPath);
   console.log(`  ✔ Watching inbox: ${inboxPath}`);
 
-  // 4. Start server
+  // 4. Schedule weekly health check
+  healthcheck.start();
+  console.log('  ✔ Health check scheduled');
+
+  // 5. Start server
   app.listen(PORT, () => {
     console.log(`  ✔ Dashboard live at http://localhost:${PORT}`);
     console.log('');

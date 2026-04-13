@@ -312,10 +312,14 @@ function updateWikiEntry(id, { summary, source_ids, tags, embedding, contradicti
   save();
 }
 
+// Test-only escape hatch — lets tests run raw SQL (e.g. to backdate updated_at)
+function _raw() { return db; }
+
 module.exports = {
   init, save, addMessage, getMessages, getMessageCount,
   getSourceCounts, getCategoryCounts, log, getLogs,
   getConfig, setConfig,
   addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence,
-  addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry
+  addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
+  _raw
 };
