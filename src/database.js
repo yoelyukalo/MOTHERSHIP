@@ -89,6 +89,41 @@ async function init() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_topic ON wiki_entries(topic)`);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS satellites (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      db_path TEXT,
+      owner TEXT NOT NULL DEFAULT 'mothership',
+      visibility TEXT NOT NULL DEFAULT 'full',
+      status TEXT NOT NULL DEFAULT 'active',
+      config_json TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      transferred_at TEXT,
+      notes TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_satellites_kind ON satellites(kind)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_satellites_status ON satellites(status)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS satellite_drafts (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      kind TEXT,
+      status TEXT NOT NULL DEFAULT 'discussing',
+      brief_md TEXT,
+      brief_updated_at TEXT,
+      created_satellite_id TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_drafts_status ON satellite_drafts(status)`);
+
   save();
   return db;
 }
