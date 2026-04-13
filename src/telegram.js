@@ -13,7 +13,7 @@ const path = require('path');
 const db = require('./database');
 const processor = require('./processor');
 const url = require('./url');
-const ytdlp = require('./ytdlp');
+const { ingestUrl } = require('./ingest-url');
 const conversation = require('./conversation');
 const hooks = require('./conversation-hooks');
 
@@ -200,6 +200,157 @@ function init() {
       return;
     }
 
+    // NON-VIDEO DOCUMENTS — PDFs, audio files, text files, images sent as documents, etc.
+    // (video documents are intercepted above by the videoObj branch)
+    if (msg.document) {
+      const doc = msg.document;
+      let sent;
+      try {
+        const filePath = await downloadToInbox(doc.file_id, doc.file_name || 'document.bin');
+        sent = await bot.sendMessage(
+          chatId,
+          `📎 Received ${doc.file_name || 'document'} — processing…`,
+          { reply_to_message_id: msg.message_id }
+        );
+
+        let result;
+        try {
+          result = await withRetry(
+            () => processor.processFile(filePath, {
+              source: 'telegram',
+              baseMeta: { ...baseMeta, original_filename: doc.file_name, mime_type: doc.mime_type }
+            }),
+            'document processing'
+          );
+        } catch (err) {
+          console.error(`  ⚠ Document processing failed for ${doc.file_name}:`, err.message);
+          await bot.editMessageText(`⚠ Processing failed: ${err.message}`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+          return;
+        }
+
+        if (!result) {
+          // Unknown file type — store a stub and acknowledge
+          db.addMessage(`[Unknown file] ${doc.file_name || filePath}`, 'telegram', 'unknown-file', {
+            ...baseMeta,
+            filepath: filePath,
+            filename: doc.file_name,
+            mime_type: doc.mime_type
+          });
+          await bot.editMessageText(`⚠ Unknown file type — stored raw metadata.`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+          return;
+        }
+
+        // Build extracted content based on what kind it was
+        let extracted = '';
+        if (result.kind === 'pdf') extracted = `PDF: ${result.title} (${result.pageCount} pages)\n\n${result.text}`;
+        else if (result.kind === 'audio') extracted = `Audio: ${result.title}\n\nTranscript:\n${result.transcript}`;
+        else if (result.kind === 'text') extracted = `Text file: ${result.title}\n\n${result.content}`;
+        else if (result.kind === 'image') {
+          const parts = [];
+          if (result.vision?.description) parts.push(`ON-SCREEN: ${result.vision.description}`);
+          if (result.vision?.onScreenText) parts.push(`TEXT ON SCREEN: ${result.vision.onScreenText}`);
+          extracted = parts.join('\n\n');
+        }
+
+        // Post-ingestion hook (fire-and-forget)
+        if (result.messageId && extracted) {
+          hooks.postIngestion({ content: extracted, sourceId: result.messageId }).catch(() => {});
+        }
+
+        await bot.editMessageText('✔ Processed — thinking…', { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+
+        try {
+          const sourceHint = `Yoel just uploaded a ${result.kind}${result.title ? ` called "${result.title}"` : ''}. Here is what was extracted:`;
+          const reply = await conversation.respond(extracted, { contextKind: result.kind, sourceHint });
+          await sendMothershipReply(chatId, msg.message_id, reply, { ...baseMeta, _userText: extracted });
+          await bot.deleteMessage(chatId, sent.message_id).catch(() => {});
+        } catch (convErr) {
+          console.error('  ⚠ Conversation (document) failed:', convErr.message);
+          await bot.editMessageText(
+            extracted.slice(0, 4000) + `\n\n⚠ Mothership couldn't respond: ${convErr.message}`,
+            { chat_id: chatId, message_id: sent.message_id }
+          ).catch(() => {});
+        }
+      } catch (err) {
+        console.error('  ⚠ Document handling failed:', err.message);
+        if (sent) {
+          await bot.editMessageText(`⚠ Failed: ${err.message}`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+        } else {
+          await bot.sendMessage(chatId, `⚠ Failed to handle document: ${err.message}`).catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // VOICE NOTES and AUDIO FILES — transcribe via processFile → processAudio
+    if (msg.voice || msg.audio) {
+      const audioObj = msg.voice || msg.audio;
+      const label = msg.voice ? 'Voice note' : (msg.audio?.title || msg.audio?.file_name || 'Audio file');
+      // Telegram voice notes are OGG/opus. Audio files keep their original extension.
+      const suggestedName = msg.voice ? 'voice.ogg' : (msg.audio?.file_name || 'audio.mp3');
+
+      let sent;
+      try {
+        const filePath = await downloadToInbox(audioObj.file_id, suggestedName);
+        sent = await bot.sendMessage(chatId, `🎧 Received ${label} — transcribing…`, { reply_to_message_id: msg.message_id });
+
+        let result;
+        try {
+          result = await withRetry(
+            () => processor.processFile(filePath, {
+              source: 'telegram',
+              baseMeta: {
+                ...baseMeta,
+                duration: audioObj.duration,
+                mime_type: audioObj.mime_type,
+                original_filename: msg.audio?.file_name,
+                performer: msg.audio?.performer,
+                audio_title: msg.audio?.title
+              }
+            }),
+            'audio processing'
+          );
+        } catch (err) {
+          console.error(`  ⚠ Audio processing failed:`, err.message);
+          await bot.editMessageText(`⚠ Transcription failed: ${err.message}`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+          return;
+        }
+
+        if (!result) {
+          await bot.editMessageText(`⚠ Couldn't process audio.`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+          return;
+        }
+
+        const extracted = `${label}\n\nTranscript:\n${result.transcript || ''}`;
+        if (result.messageId && result.transcript) {
+          hooks.postIngestion({ content: result.transcript, sourceId: result.messageId }).catch(() => {});
+        }
+
+        await bot.editMessageText('✔ Transcribed — thinking…', { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+
+        try {
+          const sourceHint = `Yoel just sent a ${msg.voice ? 'voice note' : 'audio file'}. Transcript:`;
+          const reply = await conversation.respond(extracted, { contextKind: 'audio', sourceHint });
+          await sendMothershipReply(chatId, msg.message_id, reply, { ...baseMeta, _userText: extracted });
+          await bot.deleteMessage(chatId, sent.message_id).catch(() => {});
+        } catch (convErr) {
+          console.error('  ⚠ Conversation (audio) failed:', convErr.message);
+          await bot.editMessageText(
+            extracted.slice(0, 4000) + `\n\n⚠ Mothership couldn't respond: ${convErr.message}`,
+            { chat_id: chatId, message_id: sent.message_id }
+          ).catch(() => {});
+        }
+      } catch (err) {
+        console.error('  ⚠ Voice/audio handling failed:', err.message);
+        if (sent) {
+          await bot.editMessageText(`⚠ Failed: ${err.message}`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+        } else {
+          await bot.sendMessage(chatId, `⚠ Failed to handle audio: ${err.message}`).catch(() => {});
+        }
+      }
+      return;
+    }
+
     // TEXT — store, then either ack or process URLs
     if (msg.text) {
       const urls = url.extractUrls(msg.text);
@@ -233,73 +384,21 @@ function init() {
         return;
       }
 
-      // yt-dlp downloads land in a sibling folder so the inbox watcher
-      // doesn't race the Telegram handler and double-process them.
-      const downloadsPath = path.resolve(process.env.DOWNLOADS_FOLDER || './downloads');
       const results = [];
       for (const u of urls) {
-        // Stage 1: try yt-dlp download (covers TikTok, YouTube, IG, X, FB, etc.)
-        let downloaded = null;
         try {
-          downloaded = await ytdlp.downloadVideo(u, downloadsPath);
+          bot.editMessageText(`⏳ Ingesting ${u}…`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
+          const r = await ingestUrl(u, {
+            source: 'telegram',
+            baseMeta: { ...baseMeta, source_url: u }
+          });
+          results.push(r.display);
+          if (r.messageId && r.content) {
+            hooks.postIngestion({ content: r.content, sourceId: r.messageId }).catch(() => {});
+          }
         } catch (err) {
-          if (err instanceof ytdlp.NoVideoError) {
-            // Expected for non-video links — fall through to URL summary.
-          } else {
-            console.error(`  ⚠ yt-dlp download failed for ${u}:`, err.message);
-            results.push(`⚠ ${u}\nDownload failed: ${err.message}`);
-            continue;
-          }
-        }
-
-        if (downloaded) {
-          // Stage 2: video processing (vision + audio transcription)
-          bot.editMessageText(
-            `⏳ Downloaded "${downloaded.meta.title || u}" — processing (vision + audio)…`,
-            { chat_id: chatId, message_id: sent.message_id }
-          ).catch(() => {});
-
-          let result;
-          try {
-            result = await withRetry(
-              () => processor.processVideo(downloaded.filePath, {
-                mode: 'both',
-                source: 'telegram',
-                baseMeta: { ...baseMeta, ...downloaded.meta }
-              }),
-              'video processing'
-            );
-          } catch (err) {
-            console.error(`  ⚠ Video processing failed for ${u}:`, err.message);
-            results.push(`⚠ ${downloaded.meta.title || u}\nProcessing failed: ${err.message}`);
-            continue;
-          }
-
-          if (result?.messageId) {
-            const ingContent = [result?.transcript, result?.vision?.description].filter(Boolean).join('\n\n');
-            if (ingContent) hooks.postIngestion({ content: ingContent, sourceId: result.messageId }).catch(() => {});
-          }
-          const parts = [`🎬 ${downloaded.meta.title || u}`];
-          if (downloaded.meta.uploader) parts.push(`by ${downloaded.meta.uploader}`);
-          if (result?.transcript) parts.push(`\n🎧 ${result.transcript.slice(0, 1500)}${result.transcript.length > 1500 ? '…' : ''}`);
-          if (result?.vision?.description) parts.push(`\n👁 ${result.vision.description}`);
-          results.push(parts.join('\n'));
-        } else {
-          // Stage 3: URL summary fallback (non-video links)
-          try {
-            const r = await withRetry(() => url.processUrl(u), 'URL summary');
-            results.push(`🔗 ${r.title || r.url}\n${r.summary}`);
-            const linkMsgId = db.addMessage(
-              `[Link] ${r.title || r.url}\n\n${r.summary}`,
-              'telegram',
-              'link-summary',
-              { ...baseMeta, source_url: r.url, title: r.title, description: r.description }
-            );
-            hooks.postIngestion({ content: r.summary, sourceId: linkMsgId }).catch(() => {});
-          } catch (err) {
-            console.error(`  ⚠ URL summary failed for ${u}:`, err.message);
-            results.push(`⚠ ${u}\nLink summary failed: ${err.message}`);
-          }
+          console.error(`  ⚠ Ingest failed for ${u}:`, err.message);
+          results.push(`⚠ ${u}\n${err.message}`);
         }
       }
 
