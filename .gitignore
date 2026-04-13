@@ -5,7 +5,7 @@ data/
 downloads/
 inbox/*
 !inbox/.gitkeep
-tests/.tmp-*.db
+**/.tmp-*.db
 *.db.corrupted
 .claude/
 launch/
