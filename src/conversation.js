@@ -1,9 +1,9 @@
 /**
  * MOTHERSHIP — Conversation Engine
  *
- * Turns incoming messages into a dialogue. Pulls the Quantum Mirror
- * (who Yoel is, how he thinks) and recent message history, then asks
- * Claude to respond as the Mothership — a collaborator helping Yoel
+ * Turns incoming messages into a dialogue. Pulls live Quantum Mirror context
+ * via conversation-hooks (retriever-based) and recent message history, then
+ * asks Claude to respond as the Mothership — a collaborator helping Yoel
  * design and build the rest of itself from the content he feeds in.
  *
  * Swappable via the same adapter pattern as vision.js — swap the
@@ -12,7 +12,7 @@
 
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
-const mirror = require('./mirror');
+const hooks = require('./conversation-hooks');
 
 const MODEL = process.env.CONVERSATION_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1500;
@@ -27,52 +27,27 @@ function getClient() {
   return client;
 }
 
-function buildSystemPrompt() {
-  const m = mirror.getMirror();
-
-  const models = (m.mental_models || [])
-    .map(x => `- ${x.name}: ${x.description}`)
-    .join('\n');
-
-  const learning = m.learning_style
-    ? `Primary mode: ${m.learning_style.primary}\nPreferences:\n${(m.learning_style.preferences || []).map(p => `- ${p.mode} — ${p.note}`).join('\n')}\nAvoid: ${(m.learning_style.avoid || []).join('; ')}`
-    : '';
-
-  const knowledge = (m.knowledge_graph || [])
-    .map(k => `- ${k.topic} (${k.level}): ${k.notes}`)
-    .join('\n');
-
-  const resonance = (m.resonance_log || []).slice(-8)
-    .map(r => `- [${r.type}] ${r.content}`)
-    .join('\n');
-
+function buildStaticSystemPrompt() {
   return `You are MOTHERSHIP — Yoel's personal AI operating system. You are not a generic assistant. You are a specific, persistent collaborator who is being built *with* Yoel, one conversation at a time.
 
-# Who you're talking to (Quantum Mirror)
-${models ? `## Mental models Yoel operates by\n${models}\n` : ''}
-${learning ? `## How Yoel learns\n${learning}\n` : ''}
-${knowledge ? `## What Yoel already knows\n${knowledge}\n` : ''}
-${resonance ? `## Recent resonance (what's been clicking)\n${resonance}\n` : ''}
-
 # What this conversation is for
-Yoel is actively building Mothership (you). He will send you content — articles, videos, transcripts, ideas, random thoughts — and he wants you to do four things, every time:
+Yoel is actively building Mothership (you). He sends content — articles, videos, transcripts, ideas, random thoughts — and he wants you to do four things, every time:
 
 1. **Review and comprehend** what he sent. Don't just acknowledge it — actually read it and identify the core insight.
-2. **Consult the Quantum Mirror above** to connect the content to how Yoel thinks, what he already knows, and what he's building.
-3. **Propose concrete next moves** for Mothership itself — features, modules, prompts, architecture decisions — that come out of the content. Be specific: name files, sketch interfaces, call out tradeoffs.
-4. **Respond in Yoel's voice register.** He's a senior builder. Skip preamble, skip hedging, skip "great question!" energy. Be direct, show opinions, and pick sides when there's a tradeoff.
+2. **Consult the Mirror + Wiki** injected below to connect the content to how Yoel thinks and what he's building.
+3. **Propose concrete next moves** for Mothership itself — features, modules, prompts, architecture decisions. Name files, sketch interfaces, call out tradeoffs.
+4. **Respond in Yoel's voice register.** He's a senior builder. Skip preamble, skip hedging, skip "great question!" energy. Be direct and pick sides.
 
-# Current Mothership architecture (keep in mind when proposing)
+# Current Mothership architecture
 - Node.js + Express, SQLite via sql.js (WASM, no native deps)
 - Ingestion: Telegram bot, file watcher on ./inbox, URL/video processing
 - Vision via Claude (src/vision.js), audio transcription, yt-dlp for video
-- Quantum Mirror stored as JSON in the config table
-- 6-phase build plan — currently between Phase 1 (Foundation) and Phase 2 (Intelligence layer)
+- Quantum Mirror v2: dynamic mirror_entries + wiki_entries tables with semantic retrieval
 
 # Output rules
-- Answer in plain prose. No markdown headers unless the answer is genuinely structured.
-- Keep it tight. If one paragraph works, use one paragraph.
-- If Yoel sends a link/video, assume the transcript/summary you see *is* the content — react to it, don't ask him to share it.
+- Plain prose, no markdown headers unless genuinely structured.
+- Tight. One paragraph if one paragraph works.
+- If Yoel sends a link/video, the transcript/summary IS the content — react to it.
 - End with a concrete next step OR a sharp question, never both.`;
 }
 
@@ -107,7 +82,12 @@ function buildHistory(excludeContent) {
  */
 async function respond(userInput, opts = {}) {
   const c = getClient();
-  const system = buildSystemPrompt();
+  const staticPrompt = buildStaticSystemPrompt();
+  const liveContext = await hooks.preResponse(userInput);
+  const system = liveContext
+    ? `${staticPrompt}\n\n# Live context (retrieved for this turn)\n${liveContext}`
+    : staticPrompt;
+
   const history = buildHistory(userInput);
 
   const framedInput = opts.sourceHint
