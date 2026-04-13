@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
-const DB_PATH = path.join(__dirname, '..', 'data', 'mothership.db');
+const DB_PATH = process.env.MOTHERSHIP_DB_PATH || path.join(__dirname, '..', 'data', 'mothership.db');
 
 let db = null;
 
@@ -56,6 +56,23 @@ async function init() {
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS mirror_entries (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      content TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      source_type TEXT NOT NULL,
+      source_id TEXT,
+      embedding BLOB,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      superseded_by TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_category ON mirror_entries(category)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_active ON mirror_entries(superseded_by)`);
 
   save();
   return db;
@@ -176,8 +193,56 @@ function setConfig(key, value) {
   save();
 }
 
+// --- Mirror Entries ---
+
+function addMirrorEntry({ category, content, confidence = 0.5, source_type, source_id = null, embedding = null }) {
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO mirror_entries (id, category, content, confidence, source_type, source_id, embedding)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, category, content, confidence, source_type, source_id, embedding]
+  );
+  save();
+  return id;
+}
+
+function getMirrorEntries({ category = null, activeOnly = true, limit = 500 } = {}) {
+  let q = 'SELECT * FROM mirror_entries WHERE 1=1';
+  const p = [];
+  if (category) { q += ' AND category = ?'; p.push(category); }
+  if (activeOnly) { q += ' AND superseded_by IS NULL'; }
+  q += ' ORDER BY updated_at DESC LIMIT ?';
+  p.push(limit);
+
+  const stmt = db.prepare(q);
+  stmt.bind(p);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+
+function supersedeMirrorEntry(oldId, newEntry) {
+  const newId = addMirrorEntry(newEntry);
+  db.run(
+    `UPDATE mirror_entries SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?`,
+    [newId, oldId]
+  );
+  save();
+  return newId;
+}
+
+function updateMirrorEntryConfidence(id, newConfidence) {
+  db.run(
+    `UPDATE mirror_entries SET confidence = ?, updated_at = datetime('now') WHERE id = ?`,
+    [newConfidence, id]
+  );
+  save();
+}
+
 module.exports = {
   init, save, addMessage, getMessages, getMessageCount,
   getSourceCounts, getCategoryCounts, log, getLogs,
-  getConfig, setConfig
+  getConfig, setConfig,
+  addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence
 };
