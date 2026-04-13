@@ -10,6 +10,8 @@ const db = require('../database');
 const mirror = require('../mirror');
 const obsidian = require('../exporters/obsidian');
 const retriever = require('../memory/retriever');
+const conversation = require('../conversation');
+const hooks = require('../conversation-hooks');
 
 // --- Status ---
 
@@ -51,6 +53,43 @@ router.post('/messages', (req, res) => {
   if (!content) return res.status(400).json({ error: 'content is required' });
   const id = db.addMessage(content, source || 'api', category || 'uncategorized', metadata || {});
   res.json({ id, status: 'ok' });
+});
+
+// --- Chat (dashboard → conversation pipeline) ---
+//
+// Mirrors the Telegram text path: stores the user turn, calls
+// conversation.respond(), stores the mothership reply, and fires the
+// postResponse hook so quantum-mirror synthesis runs on the turn.
+router.post('/chat', async (req, res) => {
+  const { content } = req.body || {};
+  if (!content || !content.trim()) {
+    return res.status(400).json({ error: 'content is required' });
+  }
+  const userText = content.trim();
+
+  try {
+    const userId = db.addMessage(userText, 'dashboard', 'uncategorized', {
+      via: 'dashboard-chat'
+    });
+
+    const reply = await conversation.respond(userText, { contextKind: 'text' });
+
+    const replyId = db.addMessage(reply, 'mothership', 'reply', {
+      via: 'dashboard-chat',
+      in_reply_to: userId
+    });
+
+    hooks.postResponse({
+      userText,
+      assistantText: reply,
+      sourceId: replyId
+    }).catch(err => db.log('error', 'api.chat.postResponse', err.message));
+
+    res.json({ userId, replyId, reply });
+  } catch (err) {
+    db.log('error', 'api.chat', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Logs ---

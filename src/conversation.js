@@ -53,9 +53,10 @@ Yoel is actively building Mothership (you). He sends content — articles, video
 
 function buildHistory(excludeContent) {
   // Pull a wider net than HISTORY_LIMIT so we can interleave user + mothership.
-  const userRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'telegram' });
+  const telegramRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'telegram' });
+  const dashboardRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'dashboard' });
   const botRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'mothership' });
-  const combined = [...userRows, ...botRows]
+  const combined = [...telegramRows, ...dashboardRows, ...botRows]
     .filter(r => r.content && r.content.trim())
     .sort((a, b) => (a.created_at > b.created_at ? 1 : -1));
 
