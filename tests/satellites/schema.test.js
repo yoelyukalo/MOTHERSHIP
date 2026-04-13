@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { before, after } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
@@ -10,10 +11,10 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../../src/database');
 
-test('database — satellites and satellite_drafts tables exist after init', async (t) => {
-  await db.init();
-  t.after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
+before(async () => { await db.init(); });
+after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
+test('database — satellites and satellite_drafts tables exist after init', () => {
   const raw = db._raw();
   const tables = raw.exec(
     "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
