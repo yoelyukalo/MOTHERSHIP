@@ -66,3 +66,45 @@ test('quantum-mirror — handles empty synthesis without error', async () => {
   assert.strictEqual(result.created, 0);
   assert.strictEqual(result.superseded, 0);
 });
+
+test('quantum-mirror — supersede path replaces an existing entry', async () => {
+  // Seed an entry to supersede. Reuses the singleton db state from prior tests.
+  const seedId = await ve.storeMirrorEntry({
+    category: 'preferences',
+    content: 'Likes verbose documentation',
+    confidence: 0.7,
+    source_type: 'conversation',
+    source_id: 'seed'
+  });
+
+  qm._setClient({
+    messages: {
+      create: async () => ({
+        content: [{ type: 'text', text: JSON.stringify({
+          new_entries: [],
+          supersede: [
+            { old_id: seedId, new_content: 'Likes terse documentation with examples', new_confidence: 0.9 }
+          ],
+          contradictions: []
+        }) }]
+      })
+    }
+  });
+
+  const result = await qm.synthesizeFromTurn({
+    userText: 'actually I prefer terse docs with concrete examples',
+    assistantText: 'noted',
+    sourceId: 'turn-3'
+  });
+
+  assert.strictEqual(result.superseded, 1);
+
+  // The old row must be hidden (superseded_by is set) and a new active row must exist with the new content.
+  const active = db.getMirrorEntries({ category: 'preferences', activeOnly: true });
+  const stillSeeded = active.find(r => r.id === seedId);
+  assert.strictEqual(stillSeeded, undefined, 'old entry should no longer be active');
+
+  const newRow = active.find(r => r.content === 'Likes terse documentation with examples');
+  assert.ok(newRow, 'new entry should exist in active set');
+  assert.ok(Math.abs(newRow.confidence - 0.9) < 1e-6);
+});

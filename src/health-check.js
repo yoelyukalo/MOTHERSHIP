@@ -49,11 +49,12 @@ async function decayStale() {
     if (daysSince(r.updated_at) >= DECAY_AFTER_DAYS) {
       const next = Math.max(MIN_CONFIDENCE, r.confidence - DECAY_STEP);
       if (next < r.confidence) {
-        db.updateMirrorEntryConfidence(r.id, next);
+        db.updateMirrorEntryConfidence(r.id, next, { skipSave: true });
         decayed++;
       }
     }
   }
+  if (decayed > 0) db.save();
   return decayed;
 }
 

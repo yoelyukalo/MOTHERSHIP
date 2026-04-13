@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./database');
 const processor = require('./processor');
+const hooks = require('./conversation-hooks');
 
 let watcher = null;
 
@@ -43,7 +44,7 @@ function init(folderPath) {
     if (kind) {
       const mode = process.env.VISION_DEFAULT_MODE || 'vision';
       try {
-        await processor.processFile(filePath, {
+        const result = await processor.processFile(filePath, {
           mode,
           source: 'file-drop',
           baseMeta: {
@@ -54,6 +55,10 @@ function init(folderPath) {
           }
         });
         console.log(`  ✔ Processed ${kind} (${mode}): ${filename}`);
+        if (result?.messageId) {
+          const ingContent = [result?.transcript, result?.vision?.description].filter(Boolean).join('\n\n');
+          if (ingContent) hooks.postIngestion({ content: ingContent, sourceId: result.messageId }).catch(() => {});
+        }
       } catch (err) {
         console.error(`  ⚠ Media processing failed for ${filename}:`, err.message);
         db.log('error', 'watcher', `Media processing failed: ${filename}`, { error: err.message });
@@ -66,13 +71,14 @@ function init(folderPath) {
     if (TEXT_EXTS.includes(ext)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
-        db.addMessage(content, 'file-drop', 'uncategorized', {
+        const messageId = db.addMessage(content, 'file-drop', 'uncategorized', {
           filename,
           filepath: filePath,
           size: fs.statSync(filePath).size,
           type: ext.slice(1)
         });
         console.log(`  ✔ Stored text file: ${filename}`);
+        hooks.postIngestion({ content, sourceId: messageId }).catch(() => {});
       } catch (err) {
         console.error(`  ⚠ Failed to read text file ${filename}:`, err.message);
       }

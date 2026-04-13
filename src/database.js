@@ -247,12 +247,12 @@ function supersedeMirrorEntry(oldId, newEntry) {
   return newId;
 }
 
-function updateMirrorEntryConfidence(id, newConfidence) {
+function updateMirrorEntryConfidence(id, newConfidence, { skipSave = false } = {}) {
   db.run(
     `UPDATE mirror_entries SET confidence = ?, updated_at = datetime('now') WHERE id = ?`,
     [newConfidence, id]
   );
-  save();
+  if (!skipSave) save();
 }
 
 // --- Wiki Entries ---

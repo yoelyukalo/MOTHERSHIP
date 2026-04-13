@@ -28,7 +28,7 @@ function yamlFrontmatter(obj) {
   const lines = ['---'];
   for (const [k, v] of Object.entries(obj)) {
     if (Array.isArray(v)) {
-      lines.push(`${k}: [${v.map(x => `"${x}"`).join(', ')}]`);
+      lines.push(`${k}: [${v.map(x => JSON.stringify(String(x))).join(', ')}]`);
     } else {
       lines.push(`${k}: ${JSON.stringify(v)}`);
     }
