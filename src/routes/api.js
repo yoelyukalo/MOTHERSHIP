@@ -61,28 +61,29 @@ router.post('/messages', (req, res) => {
 // conversation.respond(), stores the mothership reply, and fires the
 // postResponse hook so quantum-mirror synthesis runs on the turn.
 router.post('/chat', async (req, res) => {
-  const { content } = req.body || {};
+  const { content, draft_slug } = req.body || {};
   if (!content || !content.trim()) {
     return res.status(400).json({ error: 'content is required' });
   }
   const userText = content.trim();
+  const draftSlug = typeof draft_slug === 'string' && draft_slug.length > 0 ? draft_slug : null;
 
   try {
-    const userId = db.addMessage(userText, 'dashboard', 'uncategorized', {
-      via: 'dashboard-chat'
-    });
+    const userMeta = { via: 'dashboard-chat' };
+    if (draftSlug) userMeta.draft_slug = draftSlug;
+    const userId = db.addMessage(userText, 'dashboard', 'uncategorized', userMeta);
 
     const reply = await conversation.respond(userText, { contextKind: 'text' });
 
-    const replyId = db.addMessage(reply, 'mothership', 'reply', {
-      via: 'dashboard-chat',
-      in_reply_to: userId
-    });
+    const replyMeta = { via: 'dashboard-chat', in_reply_to: userId };
+    if (draftSlug) replyMeta.draft_slug = draftSlug;
+    const replyId = db.addMessage(reply, 'mothership', 'reply', replyMeta);
 
     hooks.postResponse({
       userText,
       assistantText: reply,
-      sourceId: replyId
+      sourceId: replyId,
+      draftSlug
     }).catch(err => db.log('error', 'api.chat.postResponse', err.message));
 
     res.json({ userId, replyId, reply });

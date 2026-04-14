@@ -31,10 +31,15 @@ async function preResponse(userText) {
   }
 }
 
-async function postResponse({ userText, assistantText, sourceId }) {
+async function postResponse({ userText, assistantText, sourceId, draftSlug = null }) {
   if (!userText || userText.length < MIN_TURN_LENGTH) return;
   try {
-    await qm.synthesizeFromTurn({ userText, assistantText, sourceId });
+    await qm.synthesizeFromTurn({
+      userText,
+      assistantText,
+      sourceId,
+      forceCategory: draftSlug ? 'satellite-building' : null
+    });
   } catch (err) {
     db.log('error', 'hooks.postResponse', err.message);
   }

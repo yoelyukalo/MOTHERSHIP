@@ -41,7 +41,7 @@ function parseJsonFromText(text) {
   }
 }
 
-async function synthesizeFromTurn({ userText, assistantText, sourceId }) {
+async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCategory = null }) {
   const turn = `USER: ${userText}\n\nMOTHERSHIP: ${assistantText}`;
   const existing = getExistingCandidates();
   const prompt = MIRROR_SYNTHESIS({ existing, turn });
@@ -65,7 +65,7 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId }) {
   for (const entry of parsed.new_entries || []) {
     try {
       await ve.storeMirrorEntry({
-        category: entry.category,
+        category: forceCategory || entry.category,
         content: entry.content,
         confidence: entry.confidence ?? 0.6,
         source_type: 'conversation',
