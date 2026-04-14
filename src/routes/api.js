@@ -15,7 +15,7 @@ const hooks = require('../conversation-hooks');
 const satellites = require('../satellites');
 const { requireAuth, requireAnyAuth } = require('../auth/middleware');
 
-// --- Status ---
+// --- Status (public) ---
 
 router.get('/status', (req, res) => {
   res.json({
@@ -23,37 +23,58 @@ router.get('/status', (req, res) => {
     version: '1.0.0',
     phase: 1,
     uptime: process.uptime(),
-    messageCount: db.getMessageCount(),
-    sources: db.getSourceCounts(),
-    categories: db.getCategoryCounts()
+    messageCount: db.getMessageCount({ allUsers: true }),
+    sources: db.getSourceCounts({ allUsers: true }),
+    categories: db.getCategoryCounts({ allUsers: true })
   });
 });
 
 // --- Messages ---
 
-router.get('/messages', (req, res) => {
-  const { limit, offset, source, category, search } = req.query;
+router.get('/messages', requireAuth({ permission: 'message.read' }), (req, res) => {
+  const { limit, offset, source, category, search, user_id } = req.query;
+  let targetUserId = req.user.id;
+  if (user_id && user_id !== req.user.id) {
+    if (!req.user.can('message.read_any')) return res.status(403).json({ error: 'forbidden' });
+    targetUserId = user_id;
+  }
   const messages = db.getMessages({
     limit: parseInt(limit) || 50,
     offset: parseInt(offset) || 0,
     source,
     category,
-    search
+    search,
+    userId: targetUserId
   });
   res.json(messages);
 });
 
-router.get('/messages/:id', (req, res) => {
-  const msgs = db.getMessages({ limit: 1000 });
+router.get('/messages/:id', requireAuth({ permission: 'message.read' }), (req, res) => {
+  const msgs = db.getMessages({ limit: 1000, userId: req.user.id });
   const msg = msgs.find(m => m.id === req.params.id);
-  if (!msg) return res.status(404).json({ error: 'not found' });
+  if (!msg) {
+    if (req.user.can('message.read_any')) {
+      const raw = db._raw();
+      const stmt = raw.prepare('SELECT * FROM messages WHERE id = ?');
+      stmt.bind([req.params.id]);
+      if (stmt.step()) {
+        const row = stmt.getAsObject();
+        row.metadata = JSON.parse(row.metadata || '{}');
+        row.tags = JSON.parse(row.tags || '[]');
+        stmt.free();
+        return res.json(row);
+      }
+      stmt.free();
+    }
+    return res.status(404).json({ error: 'not found' });
+  }
   res.json(msg);
 });
 
-router.post('/messages', (req, res) => {
+router.post('/messages', requireAuth({ permission: 'message.read' }), (req, res) => {
   const { content, source, category, metadata } = req.body;
   if (!content) return res.status(400).json({ error: 'content is required' });
-  const id = db.addMessage(content, source || 'api', category || 'uncategorized', metadata || {});
+  const id = db.addMessage(content, source || 'api', category || 'uncategorized', metadata || {}, req.user.id);
   res.json({ id, status: 'ok' });
 });
 
@@ -62,33 +83,35 @@ router.post('/messages', (req, res) => {
 // Mirrors the Telegram text path: stores the user turn, calls
 // conversation.respond(), stores the mothership reply, and fires the
 // postResponse hook so quantum-mirror synthesis runs on the turn.
-router.post('/chat', async (req, res) => {
+router.post('/chat', requireAuth({ permission: 'chat.send' }), async (req, res) => {
   const { content, draft_slug } = req.body || {};
   if (!content || !content.trim()) {
     return res.status(400).json({ error: 'content is required' });
   }
   const userText = content.trim();
   const draftSlug = typeof draft_slug === 'string' && draft_slug.length > 0 ? draft_slug : null;
+  const userId = req.user.id;
 
   try {
     const userMeta = { via: 'dashboard-chat' };
     if (draftSlug) userMeta.draft_slug = draftSlug;
-    const userId = db.addMessage(userText, 'dashboard', 'uncategorized', userMeta);
+    const userMsgId = db.addMessage(userText, 'dashboard', 'uncategorized', userMeta, userId);
 
-    const reply = await conversation.respond(userText, { contextKind: 'text' });
+    const reply = await conversation.respond(userText, { contextKind: 'text', userId });
 
-    const replyMeta = { via: 'dashboard-chat', in_reply_to: userId };
+    const replyMeta = { via: 'dashboard-chat', in_reply_to: userMsgId };
     if (draftSlug) replyMeta.draft_slug = draftSlug;
-    const replyId = db.addMessage(reply, 'mothership', 'reply', replyMeta);
+    const replyId = db.addMessage(reply, 'mothership', 'reply', replyMeta, userId);
 
     hooks.postResponse({
       userText,
       assistantText: reply,
       sourceId: replyId,
-      draftSlug
+      draftSlug,
+      userId
     }).catch(err => db.log('error', 'api.chat.postResponse', err.message));
 
-    res.json({ userId, replyId, reply });
+    res.json({ userId: userMsgId, replyId, reply });
   } catch (err) {
     db.log('error', 'api.chat', err.message);
     res.status(500).json({ error: err.message });
@@ -97,66 +120,81 @@ router.post('/chat', async (req, res) => {
 
 // --- Logs ---
 
-router.get('/logs', (req, res) => {
+router.get('/logs', requireAuth({ permission: 'log.read' }), (req, res) => {
   const { limit, level } = req.query;
   const logs = db.getLogs({ limit: parseInt(limit) || 100, level });
   res.json(logs);
 });
 
-// --- Quantum Mirror ---
+// --- Quantum Mirror (legacy static aggregate — NOT per-user) ---
 
-router.get('/mirror', (req, res) => {
+router.get('/mirror', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   res.json(mirror.getMirror());
 });
 
-router.get('/mirror/models', (req, res) => {
+router.get('/mirror/models', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   res.json(mirror.getModels());
 });
 
-router.get('/mirror/learning', (req, res) => {
+router.get('/mirror/learning', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   res.json(mirror.getLearningStyle());
 });
 
-router.get('/mirror/knowledge', (req, res) => {
+router.get('/mirror/knowledge', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   res.json(mirror.getKnowledgeGraph());
 });
 
-router.get('/mirror/resonance', (req, res) => {
+router.get('/mirror/resonance', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   const limit = parseInt(req.query.limit) || 50;
   res.json(mirror.getResonanceLog(limit));
 });
 
-router.post('/mirror/resonance', (req, res) => {
+router.post('/mirror/resonance', requireAuth({ permission: 'mirror.read' }), (req, res) => {
   const { type, content, score, tags } = req.body;
   if (!content) return res.status(400).json({ error: 'content is required' });
   const entry = mirror.logResonance(type || 'insight', content, score || 0, tags || []);
   res.json(entry);
 });
 
-// --- Quantum Mirror v2 ---
+// --- Quantum Mirror v2 (per-user) ---
 
-router.get('/mirror/entries', (req, res) => {
-  const { category, limit } = req.query;
+router.get('/mirror/entries', requireAuth({ permission: 'mirror.read' }), (req, res) => {
+  const { category, limit, user_id } = req.query;
+  let targetUserId = req.user.id;
+  if (user_id && user_id !== req.user.id) {
+    if (!req.user.can('mirror.read_any')) return res.status(403).json({ error: 'forbidden' });
+    targetUserId = user_id;
+  }
   res.json(db.getMirrorEntries({
     category: category || null,
     activeOnly: true,
-    limit: parseInt(limit) || 100
+    limit: parseInt(limit) || 100,
+    userId: targetUserId
   }));
 });
 
-router.get('/wiki/entries', (req, res) => {
-  res.json(db.getAllWikiEntries());
+router.get('/wiki/entries', requireAuth({ permission: 'wiki.read' }), (req, res) => {
+  const { user_id } = req.query;
+  let targetUserId = req.user.id;
+  if (user_id && user_id !== req.user.id) {
+    if (!req.user.can('wiki.read_any')) return res.status(403).json({ error: 'forbidden' });
+    targetUserId = user_id;
+  }
+  res.json(db.getWikiEntries({ userId: targetUserId, limit: 10000 }));
 });
 
-router.post('/export', async (req, res) => {
-  try { res.json(await obsidian.exportAll()); }
+router.post('/export', requireAuth({ permission: 'export.run' }), async (req, res) => {
+  try { res.json(await obsidian.exportAll({ userId: req.user.id })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/briefing', async (req, res) => {
+router.post('/briefing', requireAuth({ permission: 'briefing.run' }), async (req, res) => {
   const { topic } = req.body;
-  try { res.json({ block: await retriever.buildContextBlock(topic || 'briefing') }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    res.json({ block: await retriever.buildContextBlock(topic || 'briefing', { userId: req.user.id }) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // --- Satellites ---
