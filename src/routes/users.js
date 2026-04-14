@@ -7,10 +7,20 @@ const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
 const db = require('../database');
 const users = require('../auth/users');
+const sessions = require('../auth/sessions');
 const apiKeys = require('../auth/api-keys');
 const groups = require('../auth/groups');
 const invitations = require('../auth/invitations');
 const { requireAuth, requireAnyAuth } = require('../auth/middleware');
+
+// Strip password_hash before serializing a user row to HTTP. The hash is
+// needed inside the process (for verify) but must never cross the network
+// boundary, even to authenticated admin callers.
+function safeUser(row) {
+  if (!row) return row;
+  const { password_hash, ...rest } = row;
+  return rest;
+}
 
 // Helper: grant viewer role to a newly-created user (idempotent)
 function grantViewerRole(userId, grantedBy) {
@@ -41,17 +51,21 @@ router.post('/users', requireAuth({ permission: 'user.create' }), async (req, re
 });
 
 router.get('/users', requireAuth({ permission: 'user.list' }), (req, res) => {
-  res.json(users.listUsers());
+  res.json(users.listUsers().map(safeUser));
 });
 
 router.get('/users/:id', requireAuth({ permission: 'user.list' }), (req, res) => {
   const u = users.getUserById(req.params.id);
   if (!u) return res.status(404).json({ error: 'not found' });
-  res.json(u);
+  res.json(safeUser(u));
 });
 
 router.patch('/users/:id/disable', requireAuth({ permission: 'user.disable' }), (req, res) => {
   users.disableUser(req.params.id);
+  // Invalidate all existing sessions for the disabled user so any in-flight
+  // cookies stop working immediately (the middleware also rejects disabled
+  // users, but we don't want dead sessions sitting in the table).
+  sessions.invalidateAllSessionsForUser(req.params.id);
   res.json({ ok: true });
 });
 
@@ -59,6 +73,11 @@ router.patch('/users/:id/password', requireAuth({ permission: 'user.reset_passwo
   const { new_password } = req.body || {};
   if (!new_password) return res.status(400).json({ error: 'new_password required' });
   await users.updatePassword(req.params.id, new_password);
+  // Admin-forced reset: invalidate every session for the target user. The
+  // admin is not the target user, so there is no "current session" to
+  // preserve — we drop them all. Target user must log in again.
+  sessions.invalidateAllSessionsForUser(req.params.id);
+  db.log('info', 'auth.admin_password_reset', `user_id=${req.params.id} reset_by=${req.user.id}`);
   res.json({ ok: true });
 });
 
