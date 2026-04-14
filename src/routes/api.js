@@ -157,4 +157,127 @@ router.post('/briefing', async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// --- Satellites ---
+
+const satellites = require('../satellites');
+
+// Drafts routes MUST come first because GET /satellites/:slug would otherwise
+// match GET /satellites/drafts with :slug='drafts'.
+
+router.post('/satellites/drafts', (req, res) => {
+  try {
+    const { slug, name, kind } = req.body || {};
+    if (!slug || !name) return res.status(400).json({ error: 'slug and name required' });
+    const id = satellites.drafts.create({ slug, name, kind });
+    res.json({ id, slug });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.get('/satellites/drafts', (req, res) => {
+  res.json(satellites.drafts.list({ status: req.query.status }));
+});
+
+router.get('/satellites/drafts/:slug', (req, res) => {
+  const result = satellites.drafts.getDraftWithMessages(req.params.slug);
+  if (!result) return res.status(404).json({ error: 'not found' });
+  res.json(result);
+});
+
+router.post('/satellites/drafts/:slug/regenerate-brief', async (req, res) => {
+  try {
+    const brief = await satellites.drafts.regenerateBrief(req.params.slug);
+    res.json({ brief });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+router.post('/satellites/drafts/:slug/status', (req, res) => {
+  try {
+    const { status } = req.body || {};
+    satellites.drafts.setStatus(req.params.slug, status);
+    res.json({ status });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+// Satellites CRUD + lifecycle + directives
+
+router.post('/satellites', async (req, res) => {
+  try {
+    const { slug, name, kind, visibility, owner, config, from_draft_slug, notes } = req.body || {};
+    const result = await satellites.registry.createInstance({
+      slug, name, kind, visibility, owner, config, notes
+    });
+    if (from_draft_slug) {
+      satellites.drafts.linkToSatellite(from_draft_slug, result.id);
+    }
+    await satellites.loader.register(slug);
+    res.json({ id: result.id, slug: result.slug, status: 'active' });
+  } catch (err) {
+    db.log('error', 'api.satellites.create', err.message);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/satellites', (req, res) => {
+  const { status, kind, visibility } = req.query;
+  res.json(satellites.registry.listRows({ status, kind, visibility }));
+});
+
+router.get('/satellites/:slug', (req, res) => {
+  const row = satellites.registry.getBySlug(req.params.slug);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+router.post('/satellites/:slug/archive', async (req, res) => {
+  try { await satellites.registry.archive(req.params.slug); res.json({ status: 'archived' }); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.post('/satellites/:slug/unarchive', async (req, res) => {
+  try { await satellites.registry.unarchive(req.params.slug); res.json({ status: 'active' }); }
+  catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.post('/satellites/:slug/transfer', async (req, res) => {
+  try {
+    const { visibility, owner } = req.body || {};
+    await satellites.registry.transfer(req.params.slug, { visibility, owner });
+    res.json({ status: 'transferred' });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.post('/satellites/:slug/visibility', async (req, res) => {
+  try {
+    const { visibility } = req.body || {};
+    await satellites.registry.setVisibility(req.params.slug, visibility);
+    res.json({ visibility });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.post('/satellites/:slug/directives', (req, res) => {
+  try {
+    const { kind, payload } = req.body || {};
+    if (!kind) return res.status(400).json({ error: 'kind is required' });
+    const id = satellites.directives.issue(req.params.slug, {
+      kind, payload: payload || {}, issuedBy: 'mothership:api'
+    });
+    res.json({ id, status: 'issued' });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+
+router.get('/satellites/:slug/directives', (req, res) => {
+  const entry = satellites.loader.get(req.params.slug);
+  if (!entry) return res.status(404).json({ error: 'satellite not loaded' });
+  const result = entry.db.exec(
+    'SELECT id, kind, payload_json, status, error, applied_at FROM satellite_directives_history ORDER BY applied_at DESC'
+  );
+  if (!result.length) return res.json([]);
+  const [firstResult] = result;
+  res.json(firstResult.values.map(row => {
+    const obj = {};
+    firstResult.columns.forEach((c, i) => { obj[c] = row[i]; });
+    return obj;
+  }));
+});
+
 module.exports = router;
