@@ -10,8 +10,14 @@ process.env.MOTHERSHIP_DB_PATH = path.join(tmpRoot, 'mothership.db');
 
 const db = require('../../src/database');
 const drafts = require('../../src/satellites/drafts');
+const users = require('../../src/auth/users');
 
-before(async () => { await db.init(); });
+let testUserId;
+
+before(async () => {
+  await db.init();
+  testUserId = await users.createUser({ email: 'drafts-test@x', password: 'p' });
+});
 after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 test('drafts — create inserts a row with discussing status', () => {
@@ -34,9 +40,9 @@ test('drafts — list returns all drafts', () => {
 });
 
 test('drafts — getDraftWithMessages returns linked messages', () => {
-  db.addMessage('What if we build a dental satellite?', 'dashboard', 'uncategorized', { draft_slug: 'dr-1' });
-  db.addMessage("Sure — what's the main workflow?", 'mothership', 'reply', { draft_slug: 'dr-1' });
-  db.addMessage('Unrelated chatter', 'dashboard', 'uncategorized', {});
+  db.addMessage('What if we build a dental satellite?', 'dashboard', 'uncategorized', { draft_slug: 'dr-1' }, testUserId);
+  db.addMessage("Sure — what's the main workflow?", 'mothership', 'reply', { draft_slug: 'dr-1' }, testUserId);
+  db.addMessage('Unrelated chatter', 'dashboard', 'uncategorized', {}, testUserId);
 
   const { draft, messages } = drafts.getDraftWithMessages('dr-1');
   assert.strictEqual(draft.slug, 'dr-1');
@@ -66,7 +72,7 @@ test('drafts — linkToSatellite sets status created and fk', () => {
 
 test('drafts — regenerateBrief uses injected conversation and stores result', async () => {
   drafts.create({ slug: 'dr-brief', name: 'Brief Test', kind: 'test-kind' });
-  db.addMessage('Some chatter about the brief test', 'dashboard', 'uncategorized', { draft_slug: 'dr-brief' });
+  db.addMessage('Some chatter about the brief test', 'dashboard', 'uncategorized', { draft_slug: 'dr-brief' }, testUserId);
 
   const fakeConv = {
     respond: async (prompt) => `# Synthesized\nGot prompt starting with: ${prompt.slice(0, 30)}`

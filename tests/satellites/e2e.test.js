@@ -13,9 +13,12 @@ fs.mkdirSync(process.env.MOTHERSHIP_SATELLITES_DIR, { recursive: true });
 
 const db = require('../../src/database');
 const satellites = require('../../src/satellites');
+const users = require('../../src/auth/users');
 const { SovereigntyViolation, VisibilityViolation } = require('../../src/satellites/sovereignty');
 
-before(async () => { await db.init(); await satellites.init(); });
+let testUserId;
+
+before(async () => { await db.init(); testUserId = await users.createUser({ email: 'sat-e2e-test@x', password: 'p' }); await satellites.init(); });
 after(async () => {
   await satellites.shutdown();
   fs.rmSync(tmpRoot, { recursive: true, force: true });
@@ -28,7 +31,7 @@ test('e2e — draft → satellite → directive → applied', async () => {
   satellites.drafts.create({ slug: 'e2e-draft', name: 'E2E Draft', kind: 'test-kind' });
 
   // 2. Link a chat turn by metadata
-  db.addMessage('We should build an E2E satellite', 'dashboard', 'uncategorized', { draft_slug: 'e2e-draft' });
+  db.addMessage('We should build an E2E satellite', 'dashboard', 'uncategorized', { draft_slug: 'e2e-draft' }, testUserId);
 
   // 3. Verify linked message retrieval
   const { draft, messages } = satellites.drafts.getDraftWithMessages('e2e-draft');

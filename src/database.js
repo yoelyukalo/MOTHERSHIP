@@ -278,21 +278,24 @@ function save() {
 
 // --- Messages ---
 
-function addMessage(content, source = 'unknown', category = 'uncategorized', metadata = {}) {
+function addMessage(content, source = 'unknown', category = 'uncategorized', metadata = {}, userId = null) {
+  if (!userId) throw new Error('addMessage: userId is required');
   const id = uuidv4();
   db.run(
-    `INSERT INTO messages (id, content, source, category, metadata) VALUES (?, ?, ?, ?, ?)`,
-    [id, content, source, category, JSON.stringify(metadata)]
+    `INSERT INTO messages (id, content, source, category, metadata, user_id) VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, content, source, category, JSON.stringify(metadata), userId]
   );
   save();
   log('info', 'database', `Message added: [${source}] ${content.substring(0, 50)}...`);
   return id;
 }
 
-function getMessages({ limit = 50, offset = 0, source, category, search } = {}) {
+function getMessages({ limit = 50, offset = 0, source, category, search, userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getMessages: userId required (or allUsers=true for admin)');
   let query = 'SELECT * FROM messages WHERE 1=1';
   const params = [];
 
+  if (!allUsers) { query += ' AND user_id = ?'; params.push(userId); }
   if (source) { query += ' AND source = ?'; params.push(source); }
   if (category) { query += ' AND category = ?'; params.push(category); }
   if (search) { query += ' AND content LIKE ?'; params.push(`%${search}%`); }
@@ -314,21 +317,51 @@ function getMessages({ limit = 50, offset = 0, source, category, search } = {}) 
   return results;
 }
 
-function getMessageCount() {
-  const result = db.exec('SELECT COUNT(*) as count FROM messages');
-  return result.length > 0 ? result[0].values[0][0] : 0;
+function getMessageCount({ userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getMessageCount: userId or allUsers required');
+  let q = 'SELECT COUNT(*) as count FROM messages';
+  const p = [];
+  if (!allUsers) { q += ' WHERE user_id = ?'; p.push(userId); }
+  const stmt = db.prepare(q);
+  stmt.bind(p);
+  stmt.step();
+  const row = stmt.getAsObject();
+  stmt.free();
+  return row.count;
 }
 
-function getSourceCounts() {
-  const result = db.exec('SELECT source, COUNT(*) as count FROM messages GROUP BY source ORDER BY count DESC');
-  if (!result.length) return [];
-  return result[0].values.map(([source, count]) => ({ source, count }));
+function getSourceCounts({ userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getSourceCounts: userId or allUsers required');
+  let q = 'SELECT source, COUNT(*) as count FROM messages';
+  const p = [];
+  if (!allUsers) { q += ' WHERE user_id = ?'; p.push(userId); }
+  q += ' GROUP BY source ORDER BY count DESC';
+  const stmt = db.prepare(q);
+  if (p.length) stmt.bind(p);
+  const rows = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    rows.push({ source: r.source, count: r.count });
+  }
+  stmt.free();
+  return rows;
 }
 
-function getCategoryCounts() {
-  const result = db.exec('SELECT category, COUNT(*) as count FROM messages GROUP BY category ORDER BY count DESC');
-  if (!result.length) return [];
-  return result[0].values.map(([category, count]) => ({ category, count }));
+function getCategoryCounts({ userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getCategoryCounts: userId or allUsers required');
+  let q = 'SELECT category, COUNT(*) as count FROM messages';
+  const p = [];
+  if (!allUsers) { q += ' WHERE user_id = ?'; p.push(userId); }
+  q += ' GROUP BY category ORDER BY count DESC';
+  const stmt = db.prepare(q);
+  if (p.length) stmt.bind(p);
+  const rows = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    rows.push({ category: r.category, count: r.count });
+  }
+  stmt.free();
+  return rows;
 }
 
 // --- Logs ---
@@ -385,20 +418,23 @@ function setConfig(key, value) {
 
 // --- Mirror Entries ---
 
-function addMirrorEntry({ category, content, confidence = 0.5, source_type, source_id = null, embedding = null }) {
+function addMirrorEntry({ category, content, confidence = 0.5, source_type, source_id = null, embedding = null, userId = null }) {
+  if (!userId) throw new Error('addMirrorEntry: userId required');
   const id = uuidv4();
   db.run(
-    `INSERT INTO mirror_entries (id, category, content, confidence, source_type, source_id, embedding)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, category, content, confidence, source_type, source_id, embedding]
+    `INSERT INTO mirror_entries (id, category, content, confidence, source_type, source_id, embedding, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, category, content, confidence, source_type, source_id, embedding, userId]
   );
   save();
   return id;
 }
 
-function getMirrorEntries({ category = null, activeOnly = true, limit = 500 } = {}) {
+function getMirrorEntries({ category = null, activeOnly = true, limit = 500, userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getMirrorEntries: userId or allUsers required');
   let q = 'SELECT * FROM mirror_entries WHERE 1=1';
   const p = [];
+  if (!allUsers) { q += ' AND user_id = ?'; p.push(userId); }
   if (category) { q += ' AND category = ?'; p.push(category); }
   if (activeOnly) { q += ' AND superseded_by IS NULL'; }
   q += ' ORDER BY updated_at DESC LIMIT ?';
@@ -413,7 +449,15 @@ function getMirrorEntries({ category = null, activeOnly = true, limit = 500 } = 
 }
 
 function supersedeMirrorEntry(oldId, newEntry) {
-  const newId = addMirrorEntry(newEntry);
+  let ownerId = newEntry.userId;
+  if (!ownerId) {
+    const stmt = db.prepare(`SELECT user_id FROM mirror_entries WHERE id = ?`);
+    stmt.bind([oldId]);
+    if (stmt.step()) ownerId = stmt.getAsObject().user_id;
+    stmt.free();
+  }
+  if (!ownerId) throw new Error('supersedeMirrorEntry: could not determine owner user_id');
+  const newId = addMirrorEntry({ ...newEntry, userId: ownerId });
   db.run(
     `UPDATE mirror_entries SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?`,
     [newId, oldId]
@@ -432,20 +476,23 @@ function updateMirrorEntryConfidence(id, newConfidence, { skipSave = false } = {
 
 // --- Wiki Entries ---
 
-function addWikiEntry({ topic, summary, source_ids = [], tags = [], embedding = null, contradictions = null }) {
+function addWikiEntry({ topic, summary, source_ids = [], tags = [], embedding = null, contradictions = null, userId = null }) {
+  if (!userId) throw new Error('addWikiEntry: userId required');
   const id = uuidv4();
   db.run(
-    `INSERT INTO wiki_entries (id, topic, summary, source_ids, tags, embedding, contradictions)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, topic, summary, JSON.stringify(source_ids), JSON.stringify(tags), embedding, contradictions]
+    `INSERT INTO wiki_entries (id, topic, summary, source_ids, tags, embedding, contradictions, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, topic, summary, JSON.stringify(source_ids), JSON.stringify(tags), embedding, contradictions, userId]
   );
   save();
   return id;
 }
 
-function getWikiEntries({ topic = null, limit = 500 } = {}) {
+function getWikiEntries({ topic = null, limit = 500, userId = null, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getWikiEntries: userId or allUsers required');
   let q = 'SELECT * FROM wiki_entries WHERE 1=1';
   const p = [];
+  if (!allUsers) { q += ' AND user_id = ?'; p.push(userId); }
   if (topic) { q += ' AND topic = ?'; p.push(topic); }
   q += ' ORDER BY updated_at DESC LIMIT ?';
   p.push(limit);
@@ -463,7 +510,9 @@ function getWikiEntries({ topic = null, limit = 500 } = {}) {
   return rows;
 }
 
-function getAllWikiEntries() { return getWikiEntries({ limit: 10000 }); }
+function getAllWikiEntries({ userId = null, allUsers = false } = {}) {
+  return getWikiEntries({ userId, allUsers, limit: 10000 });
+}
 
 function updateWikiEntry(id, { summary, source_ids, tags, embedding, contradictions }) {
   db.run(

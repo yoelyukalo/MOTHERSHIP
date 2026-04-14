@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { before } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
@@ -8,9 +9,16 @@ const tmpDb = path.join(__dirname, `.tmp-mirror-${Date.now()}.db`);
 process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../src/database');
+const users = require('../src/auth/users');
+
+let testUserId;
+
+before(async () => {
+  await db.init();
+  testUserId = await users.createUser({ email: 'mirror-test@x', password: 'p' });
+});
 
 test('mirror_entries table — insert and fetch', async (t) => {
-  await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
 
   const id = db.addMirrorEntry({
@@ -19,11 +27,12 @@ test('mirror_entries table — insert and fetch', async (t) => {
     confidence: 0.9,
     source_type: 'conversation',
     source_id: 'abc-123',
-    embedding: Buffer.alloc(1536 * 4) // zero-filled float32
+    embedding: Buffer.alloc(1536 * 4), // zero-filled float32
+    userId: testUserId
   });
 
   assert.ok(id);
-  const rows = db.getMirrorEntries({ category: 'mental_models' });
+  const rows = db.getMirrorEntries({ category: 'mental_models', userId: testUserId });
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].content, 'Prefers first-principles reasoning');
   assert.ok(rows[0].embedding instanceof Uint8Array);
@@ -39,7 +48,8 @@ test('mirror_entries — supersede returns new id and hides old', async () => {
     confidence: 0.6,
     source_type: 'conversation',
     source_id: 'x',
-    embedding: Buffer.alloc(1536 * 4)
+    embedding: Buffer.alloc(1536 * 4),
+    userId: testUserId
   });
   const newId = db.supersedeMirrorEntry(oldId, {
     category: 'preferences',
@@ -48,8 +58,9 @@ test('mirror_entries — supersede returns new id and hides old', async () => {
     source_type: 'conversation',
     source_id: 'y',
     embedding: Buffer.alloc(1536 * 4)
+    // no userId here — supersedeMirrorEntry inherits from old entry
   });
-  const active = db.getMirrorEntries({ category: 'preferences', activeOnly: true });
+  const active = db.getMirrorEntries({ category: 'preferences', activeOnly: true, userId: testUserId });
   assert.strictEqual(active.length, 1);
   assert.strictEqual(active[0].id, newId);
 });

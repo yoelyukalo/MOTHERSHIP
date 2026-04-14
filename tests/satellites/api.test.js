@@ -13,13 +13,15 @@ fs.mkdirSync(process.env.MOTHERSHIP_SATELLITES_DIR, { recursive: true });
 
 const db = require('../../src/database');
 const satellites = require('../../src/satellites');
+const users = require('../../src/auth/users');
 const express = require('express');
 const apiRoutes = require('../../src/routes/api');
 
-let server, baseUrl;
+let server, baseUrl, testUserId;
 
 before(async () => {
   await db.init();
+  testUserId = await users.createUser({ email: 'sat-api-test@x', password: 'p' });
   await satellites.init();
   const app = express();
   app.use(express.json());
@@ -95,7 +97,7 @@ test('api — POST /api/satellites/drafts creates a draft', async () => {
 });
 
 test('api — GET /api/satellites/drafts/:slug returns draft and messages', async () => {
-  db.addMessage('test draft message', 'dashboard', 'uncategorized', { draft_slug: 'api-draft-1' });
+  db.addMessage('test draft message', 'dashboard', 'uncategorized', { draft_slug: 'api-draft-1' }, testUserId);
   const r = await req('GET', '/api/satellites/drafts/api-draft-1');
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.body.draft.slug, 'api-draft-1');
