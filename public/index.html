@@ -4,640 +4,1367 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MOTHERSHIP</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg-0: #050507;
+      --bg-1: #0a0a11;
+      --bg-2: #0f0f18;
+      --text: #f2f3f7;
+      --text-dim: #a5a8b6;
+      --muted: #6a6d7b;
+      --silver: #e8ecf3;
+      --ice: #9cc0e0;
+      --ice-dim: #6f95b5;
+      --violet: #a897d6;
+      --green: #84d3a4;
+      --amber: #e9c880;
+      --red: #e87a7d;
+      --hair: rgba(255, 255, 255, 0.09);
+      --hair-hi: rgba(255, 255, 255, 0.14);
+      --glass: rgba(255, 255, 255, 0.045);
+      --glass-hi: rgba(255, 255, 255, 0.075);
+      --shadow-card: 0 1px 0 rgba(255,255,255,0.07) inset, 0 30px 70px -30px rgba(0,0,0,0.75);
+      --shadow-lift: 0 1px 0 rgba(255,255,255,0.12) inset, 0 44px 90px -30px rgba(0,0,0,0.85), 0 0 60px -10px rgba(156,192,224,0.08);
+      --radius-card: 20px;
+      --radius-inner: 14px;
+      --radius-pill: 999px;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
-    :root {
-      --bg: #0a0a0f;
-      --surface: #12121a;
-      --surface-2: #171722;
-      --border: #1e1e2e;
-      --border-hi: #2a2a3e;
-      --text: #e0e0e8;
-      --muted: #6b6b80;
-      --accent: #7c5cfc;
-      --accent-dim: #5a3fd4;
-      --green: #34d399;
-      --amber: #fbbf24;
-      --red: #f87171;
-      --cyan: #5ba8f5;
-    }
-
-    body {
-      font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-      background: var(--bg);
+    html, body {
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg-0);
       color: var(--text);
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: 'ss01', 'ss02', 'cv11';
+    }
+    body { position: relative; overflow-x: hidden; }
+
+    /* Atmospheric background */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 1200px 700px at 50% -10%, rgba(120, 145, 180, 0.10), transparent 60%),
+        radial-gradient(ellipse 900px 600px at 85% 40%, rgba(156, 192, 224, 0.05), transparent 60%),
+        radial-gradient(ellipse 800px 500px at 10% 85%, rgba(168, 151, 214, 0.04), transparent 60%),
+        linear-gradient(180deg, #0a0a11 0%, #050507 100%);
+      z-index: -2;
+    }
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: repeating-linear-gradient(
+        0deg, transparent 0, transparent 2px,
+        rgba(255,255,255,0.006) 2px, rgba(255,255,255,0.006) 4px);
+      pointer-events: none;
+      z-index: -1;
     }
 
-    /* Header */
-    .header {
-      padding: 20px 32px;
-      border-bottom: 1px solid var(--border);
+    @supports not (backdrop-filter: blur(1px)) {
+      .glass, .nav, .chatbar, .topic-card, .mirror-panel, .message, .bubble, .modal {
+        background: rgba(18, 18, 26, 0.9) !important;
+      }
+    }
+
+    /* ── NAV ── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      padding: 18px 40px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 24px;
+      background: rgba(5, 5, 7, 0.55);
+      backdrop-filter: blur(20px) saturate(160%);
+      -webkit-backdrop-filter: blur(20px) saturate(160%);
+      border-bottom: 1px solid var(--hair);
     }
-    .header h1 {
-      font-size: 18px;
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
       font-weight: 600;
-      letter-spacing: 4px;
-      color: var(--accent);
+      letter-spacing: 0.24em;
+      color: var(--text);
+      text-transform: uppercase;
+      flex-shrink: 0;
     }
-    .header .status-badge {
+    .nav-brand .mark {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 32% 30%, #fafbfd 0%, #c8cdd8 30%, #7e8797 65%, #2a2e3a 100%);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.18),
+        inset 0 -2px 4px rgba(0,0,0,0.4),
+        0 0 20px rgba(156,192,224,0.25);
+    }
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+    .nav-tab {
+      background: none;
+      border: none;
+      padding: 10px 18px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: var(--radius-pill);
+      transition: color 0.25s ease, background 0.25s ease, opacity 0.25s ease, box-shadow 0.25s ease;
+    }
+    .nav-tab:hover { color: var(--text); }
+    .nav-tab.active {
+      color: var(--text);
+      background: rgba(255,255,255,0.055);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.11), 0 0 20px -6px rgba(156,192,224,0.15);
+    }
+    .nav-tab.dim {
+      opacity: 0.48;
+      font-size: 12px;
+    }
+    .nav-tab.dim:hover { opacity: 0.82; }
+    .nav-tab.dim.active { opacity: 1; }
+    .nav-status {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 12px;
-      color: var(--green);
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      flex-shrink: 0;
     }
-    .header .status-dot {
-      width: 8px;
-      height: 8px;
-      background: var(--green);
+    .nav-status .dot {
+      width: 7px; height: 7px;
       border-radius: 50%;
-      animation: pulse 2s ease-in-out infinite;
+      background: var(--green);
+      box-shadow: 0 0 10px rgba(132, 211, 164, 0.6);
+      animation: pulse 2.5s ease-in-out infinite;
     }
     @keyframes pulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.4; }
     }
 
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 4px;
-      padding: 0 32px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-    }
-    .tab {
-      padding: 14px 20px;
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: var(--muted);
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s;
-      background: none;
-      border-left: none;
-      border-right: none;
-      border-top: none;
-      font-family: inherit;
-    }
-    .tab:hover { color: var(--text); }
-    .tab.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
-    }
-
-    /* Layout */
+    /* ── CONTAINER ── */
     .container {
-      max-width: 1400px;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 24px 32px;
+      padding: 32px 40px 96px;
     }
     .view { display: none; }
-    .view.active { display: block; }
+    .view.active { display: block; animation: viewIn 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+    @keyframes viewIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
 
-    /* Stats row */
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
+    /* ── HERO ── */
+    .hero {
+      text-align: center;
+      padding: 72px 0 32px;
+      position: relative;
     }
-    .stat-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
+    .hero::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 35%;
+      transform: translate(-50%, -50%);
+      width: 780px;
+      height: 380px;
+      background: radial-gradient(ellipse, rgba(156, 192, 224, 0.08), transparent 60%);
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 0;
     }
-    .stat-card .label {
-      font-size: 11px;
+    .hero-wordmark {
+      position: relative;
+      font-family: 'Geist', sans-serif;
+      font-size: clamp(52px, 8vw, 108px);
+      font-weight: 900;
+      letter-spacing: -0.045em;
+      line-height: 0.9;
+      color: transparent;
+      background: linear-gradient(180deg, #ffffff 0%, #d2d6e0 45%, #8a8f9d 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      margin-bottom: 22px;
+      filter: drop-shadow(0 20px 50px rgba(0,0,0,0.55));
+      animation: heroIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+    .hero-sub {
+      position: relative;
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 0.32em;
       text-transform: uppercase;
-      letter-spacing: 2px;
+      color: var(--muted);
+      margin-bottom: 56px;
+      animation: heroIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.1s both;
+    }
+    @keyframes heroIn {
+      from { opacity: 0; transform: translateY(16px); filter: blur(6px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+
+    /* ── CHAT BAR ── */
+    .chatbar {
+      max-width: 720px;
+      margin: 0 auto;
+      position: relative;
+      display: flex;
+      align-items: center;
+      padding: 6px 6px 6px 26px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-pill);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      box-shadow: var(--shadow-card);
+      transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+      animation: heroIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) 0.2s both;
+    }
+    .chatbar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(180deg, rgba(255,255,255,0.09), transparent 50%);
+      pointer-events: none;
+    }
+    .chatbar:focus-within {
+      border-color: rgba(156, 192, 224, 0.38);
+      background: rgba(255,255,255,0.06);
+      box-shadow:
+        var(--shadow-card),
+        0 0 0 4px rgba(156, 192, 224, 0.07),
+        inset 0 0 28px rgba(156, 192, 224, 0.05);
+    }
+    .chatbar input {
+      flex: 1;
+      background: none;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font: inherit;
+      font-size: 16px;
+      font-weight: 400;
+      padding: 18px 14px;
+      min-width: 0;
+    }
+    .chatbar input::placeholder {
+      color: var(--muted);
+      font-weight: 300;
+    }
+    .chatbar button {
+      flex-shrink: 0;
+      width: 44px; height: 44px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 100%);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 50%;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.25s ease;
+    }
+    .chatbar button:hover {
+      background: linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 100%);
+      box-shadow: 0 0 24px rgba(156,192,224,0.22);
+      border-color: rgba(255,255,255,0.3);
+    }
+    .chatbar button svg { width: 16px; height: 16px; }
+
+    /* ── THREAD ── */
+    .thread {
+      max-width: 720px;
+      margin: 28px auto 0;
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .thread.active { display: flex; }
+    .bubble {
+      padding: 18px 22px;
+      border-radius: var(--radius-inner);
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      font-size: 14px;
+      line-height: 1.6;
+      font-weight: 300;
+      animation: bubbleIn 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+      position: relative;
+    }
+    .bubble::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), transparent 50%);
+      pointer-events: none;
+    }
+    @keyframes bubbleIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .bubble.user {
+      align-self: flex-end;
+      max-width: 82%;
+      background: rgba(156, 192, 224, 0.08);
+      border-color: rgba(156, 192, 224, 0.22);
+    }
+    .bubble.system {
+      align-self: flex-start;
+      max-width: 85%;
+    }
+    .bubble .bubble-meta {
+      font-size: 9px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
       color: var(--muted);
       margin-bottom: 8px;
+      font-weight: 500;
     }
-    .stat-card .value {
-      font-size: 28px;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .stat-card .sub {
-      font-size: 11px;
-      color: var(--muted);
-      margin-top: 4px;
-    }
-
-    /* Two-column layout */
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-    .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-      gap: 16px;
-    }
-    @media (max-width: 768px) {
-      .grid { grid-template-columns: 1fr; }
-    }
-
-    /* Panel */
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
-      margin-bottom: 16px;
-    }
-    .panel-header {
-      padding: 16px 20px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .panel-header h2 {
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: var(--muted);
-    }
-    .panel-header .count {
-      font-size: 11px;
-      color: var(--accent);
-      background: rgba(124, 92, 252, 0.12);
-      padding: 2px 10px;
-      border-radius: 12px;
-    }
-    .panel-body {
-      padding: 0;
-      max-height: 500px;
-      overflow-y: auto;
-    }
-    .panel-body.flush { padding: 20px; max-height: none; }
-
-    /* Message list */
-    .message {
-      padding: 12px 20px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .message:hover { background: rgba(124, 92, 252, 0.08); }
-    .message:last-child { border-bottom: none; }
-    .message .meta {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-    }
-    .message .source {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 600;
-    }
-    .source-telegram { background: #1a3a5c; color: #5ba8f5; }
-    .source-file-drop, .source-file { background: #2a1a3c; color: #b58cf5; }
-    .source-api { background: #1a3c2a; color: #5cf5a8; }
-    .source-dashboard { background: #3c2a1a; color: #fbbf24; }
-    .source-unknown { background: #2a2a2a; color: #888; }
-    .message .time {
-      font-size: 10px;
-      color: var(--muted);
-    }
-    .message .content {
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--text);
+    .bubble .bubble-body {
+      white-space: pre-wrap;
       word-break: break-word;
     }
+    .bubble.pending .bubble-body { min-height: 18px; }
+    .typing {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      padding: 2px 0;
+    }
+    .typing span {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--ice);
+      opacity: 0.35;
+      animation: typingPulse 1.2s ease-in-out infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.15s; }
+    .typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes typingPulse {
+      0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+      40% { opacity: 1; transform: translateY(-2px); }
+    }
+    .chatbar input:disabled { opacity: 0.6; }
+    .chatbar button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* Log list */
-    .log-entry {
-      padding: 8px 20px;
-      border-bottom: 1px solid var(--border);
+    /* ── STAT STRIP ── */
+    .stat-strip {
+      max-width: 720px;
+      margin: 44px auto 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 30px;
       font-size: 11px;
-      display: flex;
-      gap: 12px;
-      align-items: baseline;
-    }
-    .log-entry:last-child { border-bottom: none; }
-    .log-entry .log-time { color: var(--muted); white-space: nowrap; }
-    .log-entry .log-source { color: var(--accent); min-width: 70px; }
-    .log-entry .log-msg { color: var(--text); }
-
-    /* Quick input */
-    .quick-input {
-      margin-top: 24px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      display: flex;
-      gap: 12px;
-    }
-    .quick-input input {
-      flex: 1;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 10px 16px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 13px;
-      outline: none;
-    }
-    .quick-input input:focus { border-color: var(--accent); }
-    .quick-input input::placeholder { color: var(--muted); }
-    .quick-input button {
-      background: var(--accent);
-      border: none;
-      border-radius: 6px;
-      padding: 10px 24px;
-      color: white;
-      font-family: inherit;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .quick-input button:hover { background: var(--accent-dim); }
-
-    /* Empty state */
-    .empty {
-      text-align: center;
-      padding: 48px 20px;
       color: var(--muted);
-      font-size: 13px;
+      letter-spacing: 0.06em;
+      flex-wrap: wrap;
+    }
+    .stat-strip .stat {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .stat-strip .stat-val {
+      color: var(--text);
+      font-weight: 500;
+      font-size: 14px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-strip .stat-sep {
+      width: 1px;
+      height: 12px;
+      background: var(--hair);
     }
 
-    /* ── Quantum Mirror ── */
-    .mirror-item {
-      padding: 14px 20px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .mirror-item:last-child { border-bottom: none; }
-    .mirror-item:hover { background: rgba(124, 92, 252, 0.08); }
-    .mirror-item .title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 4px;
+    /* ── SECTION HEAD ── */
+    .section-head {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      margin-bottom: 22px;
+      padding: 0 4px;
+    }
+    .section-head h2 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .count-chip {
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    /* ── TOPIC CARDS ── */
+    .topics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 18px;
+    }
+    .topic-card {
+      padding: 28px 28px 24px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-card);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      box-shadow: var(--shadow-card);
+      cursor: pointer;
+      transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.35s ease, box-shadow 0.35s ease, background 0.35s ease;
+      position: relative;
+      overflow: hidden;
+      min-height: 184px;
+      display: flex;
+      flex-direction: column;
+    }
+    .topic-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(180deg, rgba(255,255,255,0.07), transparent 40%);
+      pointer-events: none;
+    }
+    .topic-card:hover {
+      transform: translateY(-4px);
+      border-color: var(--hair-hi);
+      background: var(--glass-hi);
+      box-shadow: var(--shadow-lift);
+    }
+    .topic-card .topic-source {
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 14px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .topic-card .topic-source::before {
+      content: '';
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      box-shadow: 0 0 8px currentColor;
+    }
+    .topic-card.source-telegram .topic-source { color: var(--ice); }
+    .topic-card.source-telegram .topic-source::before { background: var(--ice); }
+    .topic-card.source-file-drop .topic-source,
+    .topic-card.source-file .topic-source { color: var(--violet); }
+    .topic-card.source-file-drop .topic-source::before,
+    .topic-card.source-file .topic-source::before { background: var(--violet); }
+    .topic-card.source-api .topic-source { color: var(--green); }
+    .topic-card.source-api .topic-source::before { background: var(--green); }
+    .topic-card.source-dashboard .topic-source { color: var(--silver); }
+    .topic-card.source-dashboard .topic-source::before { background: var(--silver); }
+    .topic-card .topic-title {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      line-height: 1.4;
+      margin-bottom: 10px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .topic-card .topic-snippet {
+      font-size: 13px;
+      font-weight: 300;
+      color: var(--text-dim);
+      line-height: 1.55;
+      margin-bottom: 16px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      flex: 1;
+    }
+    .topic-card .topic-time {
+      margin-top: auto;
+      font-size: 11px;
+      font-weight: 300;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+
+    /* ── QUANTUM MIRROR ── */
+    .page-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .page-head h1 {
+      font-size: 28px;
+      font-weight: 500;
+      letter-spacing: -0.015em;
+      color: var(--text);
+    }
+    .page-head .page-sub {
+      font-size: 12px;
+      font-weight: 300;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .mirror-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+    .mirror-col {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      min-width: 0;
+    }
+    .mirror-panel {
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-card);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+      min-width: 0;
+      position: relative;
+    }
+    .mirror-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(180deg, rgba(255,255,255,0.055), transparent 30%);
+      pointer-events: none;
+    }
+    .mirror-panel-head {
+      padding: 24px 28px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--hair);
+      position: relative;
+    }
+    .mirror-panel-head h2 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .mirror-panel-body {
+      padding: 6px 0;
+      max-height: 520px;
+      overflow-y: auto;
+      position: relative;
+    }
+    .mirror-panel-body.flush { padding: 28px; max-height: none; }
+
+    .mirror-item {
+      padding: 20px 28px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .mirror-item:last-child { border-bottom: none; }
+    .mirror-item:hover { background: rgba(255,255,255,0.028); }
+    .mirror-item .title {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
     }
     .mirror-item .desc {
-      font-size: 11px;
-      color: var(--muted);
-      line-height: 1.5;
+      font-size: 12px;
+      font-weight: 300;
+      color: var(--text-dim);
+      line-height: 1.6;
     }
     .mirror-item .tags {
       display: flex;
       gap: 6px;
       flex-wrap: wrap;
-      margin-top: 6px;
+      margin-top: 12px;
     }
-    .tag {
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      padding: 2px 8px;
-      border-radius: 10px;
-      background: var(--bg);
-      border: 1px solid var(--border-hi);
-      color: var(--muted);
-    }
-    .tag-level-advanced { color: var(--green); border-color: var(--green); }
-    .tag-level-intermediate { color: var(--amber); border-color: var(--amber); }
-    .tag-level-exploring { color: var(--cyan); border-color: var(--cyan); }
 
-    /* Strength bar */
+    /* ── PILLS ── */
+    .pill {
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      padding: 4px 11px;
+      border-radius: var(--radius-pill);
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--hair);
+      color: var(--text-dim);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: inline-block;
+      white-space: nowrap;
+    }
+    .pill.strong { color: var(--text); border-color: var(--hair-hi); font-variant-numeric: tabular-nums; }
+    .pill.level-advanced { color: var(--green); border-color: rgba(132,211,164,0.32); background: rgba(132,211,164,0.06); text-transform: uppercase; letter-spacing: 0.14em; }
+    .pill.level-intermediate { color: var(--amber); border-color: rgba(233,200,128,0.32); background: rgba(233,200,128,0.06); text-transform: uppercase; letter-spacing: 0.14em; }
+    .pill.level-exploring { color: var(--ice); border-color: rgba(156,192,224,0.32); background: rgba(156,192,224,0.06); text-transform: uppercase; letter-spacing: 0.14em; }
+
+    /* ── STRENGTH BAR ── */
     .strength-bar {
-      height: 4px;
-      background: var(--bg);
+      height: 3px;
+      background: rgba(255,255,255,0.05);
       border-radius: 2px;
-      margin-top: 8px;
+      margin-top: 12px;
       overflow: hidden;
     }
     .strength-fill {
       height: 100%;
-      background: linear-gradient(90deg, var(--accent-dim), var(--accent));
-      transition: width 0.3s;
+      background: linear-gradient(90deg, rgba(156,192,224,0.55), rgba(232,236,243,0.92));
+      box-shadow: 0 0 10px rgba(156,192,224,0.35);
+      transition: width 0.5s ease;
     }
 
-    /* Learning style bars */
+    /* ── LEARNING STYLE ── */
+    .learn-primary {
+      font-size: 11px;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 22px;
+    }
+    .learn-primary strong {
+      color: var(--silver);
+      font-weight: 500;
+    }
     .learn-row {
       display: flex;
       align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
+      gap: 14px;
+      margin-bottom: 14px;
+      cursor: pointer;
     }
-    .learn-row .mode { flex: 0 0 180px; font-size: 12px; color: var(--text); }
-    .learn-row .bar-wrap { flex: 1; height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; }
-    .learn-row .bar-fill { height: 100%; background: var(--accent); }
-    .learn-row .score { flex: 0 0 40px; text-align: right; font-size: 11px; color: var(--muted); }
-
+    .learn-row .mode {
+      flex: 0 0 150px;
+      font-size: 13px;
+      font-weight: 400;
+      color: var(--text);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .learn-row .bar-wrap {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 2px;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .learn-row .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(156,192,224,0.55), rgba(232,236,243,0.92));
+      box-shadow: 0 0 8px rgba(156,192,224,0.28);
+    }
+    .learn-row .score {
+      flex: 0 0 42px;
+      text-align: right;
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-dim);
+      font-variant-numeric: tabular-nums;
+    }
     .avoid-list {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid var(--border);
+      margin-top: 26px;
+      padding: 20px 22px;
+      background: rgba(232, 122, 125, 0.045);
+      border: 1px solid rgba(232, 122, 125, 0.16);
+      border-radius: var(--radius-inner);
     }
     .avoid-list .label {
       font-size: 10px;
+      letter-spacing: 0.24em;
       text-transform: uppercase;
-      letter-spacing: 2px;
       color: var(--red);
-      margin-bottom: 8px;
+      margin-bottom: 12px;
+      font-weight: 500;
     }
+    .avoid-list ul { list-style: none; }
     .avoid-list li {
-      list-style: none;
-      font-size: 11px;
-      color: var(--muted);
-      padding: 4px 0;
-      padding-left: 16px;
+      font-size: 12px;
+      font-weight: 300;
+      color: var(--text-dim);
+      padding: 5px 0 5px 20px;
       position: relative;
+      line-height: 1.55;
     }
     .avoid-list li::before {
-      content: '×';
+      content: '—';
       position: absolute;
       left: 0;
       color: var(--red);
+      opacity: 0.75;
     }
 
-    /* Resonance log */
+    /* ── RESONANCE ── */
     .resonance-entry {
-      padding: 10px 20px;
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
+      padding: 20px 28px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      cursor: pointer;
+      transition: background 0.2s ease;
     }
     .resonance-entry:last-child { border-bottom: none; }
+    .resonance-entry:hover { background: rgba(255,255,255,0.028); }
     .resonance-entry .r-meta {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 4px;
-      font-size: 10px;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 11px;
+      flex-wrap: wrap;
     }
     .r-type {
-      padding: 2px 8px;
-      border-radius: 4px;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 9px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
-      letter-spacing: 1px;
-      font-weight: 600;
+      border: 1px solid;
     }
-    .r-type-insight { background: #1a3a5c; color: #5ba8f5; }
-    .r-type-breakthrough { background: #1a3c2a; color: #5cf5a8; }
-    .r-type-friction { background: #3c1a1a; color: #f87171; }
-    .r-type-pattern { background: #2a1a3c; color: #b58cf5; }
-
-    /* Modal */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-      padding: 24px;
-    }
-    .modal-overlay.active { display: flex; }
-    .modal {
-      background: var(--surface);
-      border: 1px solid var(--border-hi);
-      border-radius: 12px;
-      max-width: 700px;
-      width: 100%;
-      max-height: 85vh;
-      overflow-y: auto;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    }
-    .modal-header {
-      padding: 20px 24px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .modal-header h3 {
-      font-size: 14px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: var(--accent);
-    }
-    .modal-close {
-      background: none;
-      border: none;
+    .r-type-insight { color: var(--ice); border-color: rgba(156,192,224,0.32); background: rgba(156,192,224,0.06); }
+    .r-type-breakthrough { color: var(--green); border-color: rgba(132,211,164,0.32); background: rgba(132,211,164,0.06); }
+    .r-type-friction { color: var(--red); border-color: rgba(232,122,125,0.32); background: rgba(232,122,125,0.06); }
+    .r-type-pattern { color: var(--violet); border-color: rgba(168,151,214,0.32); background: rgba(168,151,214,0.06); }
+    .r-time {
+      font-size: 11px;
       color: var(--muted);
-      font-size: 20px;
-      cursor: pointer;
-      padding: 0 8px;
-      font-family: inherit;
+      font-variant-numeric: tabular-nums;
     }
-    .modal-close:hover { color: var(--text); }
-    .modal-body { padding: 24px; }
-    .modal-body .field {
-      margin-bottom: 16px;
+    .r-score {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
     }
-    .modal-body .field-label {
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .modal-body .field-value {
+    .resonance-entry .r-content {
       font-size: 13px;
       color: var(--text);
       line-height: 1.6;
-      word-break: break-word;
-      white-space: pre-wrap;
-    }
-    .modal-body pre {
-      background: var(--bg);
-      padding: 12px;
-      border-radius: 6px;
-      font-size: 11px;
-      color: var(--muted);
-      overflow-x: auto;
-      border: 1px solid var(--border);
+      font-weight: 300;
     }
 
-    /* Sources bar */
-    .sources-bar {
+    /* ── MESSAGES ── */
+    .source-pills {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
     .source-pill {
-      font-size: 10px;
-      padding: 3px 10px;
-      border-radius: 12px;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      color: var(--muted);
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.06em;
+      padding: 7px 14px;
+      border-radius: var(--radius-pill);
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      color: var(--text-dim);
       cursor: pointer;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: all 0.25s ease;
+      text-transform: lowercase;
+      font-variant-numeric: tabular-nums;
     }
-    .source-pill.active { border-color: var(--accent); color: var(--accent); }
+    .source-pill:hover { color: var(--text); border-color: var(--hair-hi); }
+    .source-pill.active {
+      color: var(--text);
+      border-color: rgba(232,236,243,0.42);
+      background: rgba(232,236,243,0.08);
+      box-shadow: 0 0 14px rgba(232,236,243,0.09);
+    }
+    .messages-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .message {
+      padding: 22px 26px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-left: 3px solid var(--hair);
+      border-radius: var(--radius-inner);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+    .message::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(180deg, rgba(255,255,255,0.05), transparent 40%);
+      pointer-events: none;
+    }
+    .message:hover {
+      border-color: var(--hair-hi);
+      background: var(--glass-hi);
+      transform: translateX(2px);
+    }
+    .message.source-telegram { border-left-color: rgba(156,192,224,0.6); }
+    .message.source-file-drop,
+    .message.source-file { border-left-color: rgba(168,151,214,0.6); }
+    .message.source-api { border-left-color: rgba(132,211,164,0.6); }
+    .message.source-dashboard { border-left-color: rgba(232,236,243,0.6); }
+    .message:hover.source-telegram { border-left-color: var(--ice); }
+    .message:hover.source-file-drop,
+    .message:hover.source-file { border-left-color: var(--violet); }
+    .message:hover.source-api { border-left-color: var(--green); }
+    .message:hover.source-dashboard { border-left-color: var(--silver); }
+    .message .msg-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      gap: 12px;
+      position: relative;
+    }
+    .message .msg-source {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .message.source-telegram .msg-source { color: var(--ice); }
+    .message.source-file-drop .msg-source,
+    .message.source-file .msg-source { color: var(--violet); }
+    .message.source-api .msg-source { color: var(--green); }
+    .message.source-dashboard .msg-source { color: var(--silver); }
+    .message .msg-time {
+      font-size: 11px;
+      font-weight: 300;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .message .msg-content {
+      font-size: 14px;
+      line-height: 1.65;
+      color: var(--text);
+      font-weight: 300;
+      word-break: break-word;
+      display: -webkit-box;
+      -webkit-line-clamp: 4;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      position: relative;
+    }
 
-    /* Scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
+    /* ── SYSTEM LOG ── */
+    .log-container {
+      padding: 24px 0;
+      max-height: 76vh;
+      overflow-y: auto;
+    }
+    .log-entry {
+      padding: 8px 32px;
+      font-family: 'Geist Mono', 'SF Mono', 'Consolas', monospace;
+      font-size: 12px;
+      display: grid;
+      grid-template-columns: 96px 150px 1fr;
+      gap: 18px;
+      align-items: baseline;
+      transition: background 0.15s ease;
+      line-height: 1.5;
+    }
+    .log-entry:hover { background: rgba(255,255,255,0.022); }
+    .log-entry .log-time { color: var(--muted); font-weight: 400; }
+    .log-entry .log-source {
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--text-dim);
+    }
+    .log-entry .log-source[data-src="quantum-mirror"] { color: var(--violet); }
+    .log-entry .log-source[data-src="database"] { color: var(--ice); }
+    .log-entry .log-source[data-src="synthesizer"] { color: var(--green); }
+    .log-entry .log-source[data-src="healthcheck"] { color: var(--amber); }
+    .log-entry .log-source[data-src="telegram"] { color: var(--ice); }
+    .log-entry .log-source[data-src="watcher"] { color: var(--violet); }
+    .log-entry .log-source[data-src="processor"] { color: var(--amber); }
+    .log-entry .log-msg {
+      color: var(--text);
+      font-weight: 400;
+      word-break: break-word;
+    }
+
+    /* ── EMPTY ── */
+    .empty {
+      padding: 72px 24px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 300;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── SCROLLBAR ── */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.07);
+      border-radius: 4px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255,255,255,0.14);
+      background-clip: padding-box;
+    }
+
+    /* ── MODAL ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      padding: 32px;
+    }
+    .modal-overlay.active { display: flex; animation: viewIn 0.25s ease; }
+    .modal {
+      background: rgba(18, 18, 26, 0.88);
+      border: 1px solid var(--hair-hi);
+      border-radius: var(--radius-card);
+      max-width: 720px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      backdrop-filter: blur(32px) saturate(180%);
+      -webkit-backdrop-filter: blur(32px) saturate(180%);
+      box-shadow: 0 40px 120px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.11) inset;
+      position: relative;
+    }
+    .modal-header {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--hair);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: rgba(18, 18, 26, 0.88);
+      backdrop-filter: blur(32px) saturate(180%);
+      -webkit-backdrop-filter: blur(32px) saturate(180%);
+      z-index: 1;
+    }
+    .modal-header h3 {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+    .modal-close {
+      width: 32px; height: 32px;
+      background: none;
+      border: 1px solid var(--hair);
+      border-radius: 50%;
+      color: var(--text-dim);
+      font-size: 16px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+    .modal-close:hover {
+      color: var(--text);
+      border-color: var(--hair-hi);
+      background: rgba(255,255,255,0.05);
+    }
+    .modal-body { padding: 32px; }
+    .modal-body .field { margin-bottom: 22px; }
+    .modal-body .field:last-child { margin-bottom: 0; }
+    .modal-body .field-label {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .modal-body .field-value {
+      font-size: 14px;
+      font-weight: 300;
+      color: var(--text);
+      line-height: 1.65;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .modal-body pre {
+      background: rgba(0,0,0,0.35);
+      padding: 18px;
+      border-radius: var(--radius-inner);
+      font-size: 11px;
+      color: var(--text-dim);
+      overflow-x: auto;
+      border: 1px solid var(--hair);
+      font-family: 'Geist Mono', monospace;
+      line-height: 1.65;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 960px) {
+      .mirror-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .nav {
+        padding: 14px 20px;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      .nav-brand { font-size: 11px; letter-spacing: 0.2em; }
+      .nav-tabs {
+        order: 3;
+        width: 100%;
+        justify-content: center;
+      }
+      .nav-tab { padding: 7px 12px; font-size: 12px; }
+      .nav-tab.dim { font-size: 11px; }
+      .nav-status span { display: none; }
+      .container { padding: 24px 20px 60px; }
+      .hero { padding: 48px 0 24px; }
+      .hero-wordmark { font-size: clamp(44px, 13vw, 68px); letter-spacing: -0.035em; }
+      .hero-sub { font-size: 10px; margin-bottom: 36px; letter-spacing: 0.28em; }
+      .chatbar { padding: 4px 4px 4px 20px; }
+      .chatbar input { font-size: 14px; padding: 14px 10px; }
+      .chatbar button { width: 40px; height: 40px; }
+      .stat-strip { gap: 16px; margin: 36px auto 48px; }
+      .topic-card { padding: 22px 22px 20px; min-height: 160px; }
+      .topic-card .topic-title { font-size: 14px; }
+      .log-entry {
+        grid-template-columns: 72px 110px 1fr;
+        padding: 8px 20px;
+        font-size: 11px;
+        gap: 12px;
+      }
+      .mirror-panel-head { padding: 20px 22px 16px; }
+      .mirror-item { padding: 16px 22px; }
+      .mirror-panel-body.flush { padding: 22px; }
+      .learn-row .mode { flex: 0 0 110px; font-size: 12px; }
+      .resonance-entry { padding: 16px 22px; }
+      .page-head h1 { font-size: 22px; }
+      .modal-overlay { padding: 16px; }
+      .modal-body { padding: 24px; }
+      .modal-header { padding: 20px 24px; }
+    }
+
+    /* ── Auth bridge (Phase 6 #2) ── */
+    .login-modal {
+      position: fixed; inset: 0;
+      background: rgba(5, 5, 7, 0.92);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-modal.hidden { display: none; }
+    .login-card {
+      background: var(--bg-1);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-card);
+      padding: 48px 40px;
+      min-width: 340px;
+      max-width: 90vw;
+      box-shadow: var(--shadow-lift);
+    }
+    .login-title {
+      font-family: 'Geist Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--ice-dim);
+      margin-bottom: 6px;
+    }
+    .login-subtitle {
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--text);
+      margin-bottom: 28px;
+    }
+    .login-card input {
+      display: block;
+      width: 100%;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-inner);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .login-card input:focus {
+      outline: none;
+      border-color: var(--ice-dim);
+      background: var(--glass-hi);
+    }
+    .login-card button[type="submit"] {
+      display: block;
+      width: 100%;
+      padding: 12px;
+      margin-top: 10px;
+      background: var(--ice);
+      color: var(--bg-0);
+      border: none;
+      border-radius: var(--radius-inner);
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .login-card button[type="submit"]:hover { background: var(--silver); }
+    .login-error {
+      color: var(--red);
+      font-size: 12px;
+      margin-top: 12px;
+      min-height: 16px;
+    }
+    .user-chip {
+      position: fixed;
+      top: 16px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 7px 14px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      z-index: 9999;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .user-chip.hidden { display: none; }
+    .user-chip .chip-name { color: var(--text); }
+    .user-chip button {
+      background: none;
+      border: none;
+      color: var(--ice-dim);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+    .user-chip button:hover { color: var(--ice); }
   </style>
 </head>
 <body>
-  <div class="header">
-    <h1>MOTHERSHIP</h1>
-    <div class="status-badge">
-      <div class="status-dot"></div>
+
+  <!-- Auth bridge (Phase 6 #2) -->
+  <div id="loginModal" class="login-modal hidden">
+    <div class="login-card">
+      <div class="login-title">MOTHERSHIP</div>
+      <div class="login-subtitle">sign in</div>
+      <form id="loginForm">
+        <input type="text" id="loginEmail" placeholder="username" required autocomplete="username">
+        <input type="password" id="loginPassword" placeholder="password" required autocomplete="current-password">
+        <button type="submit">sign in</button>
+        <div id="loginError" class="login-error"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="userChip" class="user-chip hidden">
+    <span class="chip-name" id="userChipName">—</span>
+    <button id="logoutBtn" type="button">logout</button>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-brand">
+      <div class="mark"></div>
+      <span>MOTHERSHIP</span>
+    </div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-view="overview">Overview</button>
+      <button class="nav-tab" data-view="mirror">Quantum Mirror</button>
+      <button class="nav-tab" data-view="messages">Messages</button>
+      <button class="nav-tab dim" data-view="logs">System Log</button>
+    </div>
+    <div class="nav-status">
+      <div class="dot"></div>
       <span id="status-text">ONLINE</span>
     </div>
-  </div>
+  </nav>
 
-  <div class="tabs">
-    <button class="tab active" data-view="overview">Overview</button>
-    <button class="tab" data-view="mirror">Quantum Mirror</button>
-    <button class="tab" data-view="messages">Messages</button>
-    <button class="tab" data-view="logs">System Log</button>
-  </div>
+  <main class="container">
 
-  <div class="container">
+    <!-- ── OVERVIEW (HOMEPAGE) ── -->
+    <section class="view active" id="view-overview">
+      <div class="hero">
+        <h1 class="hero-wordmark">MOTHERSHIP</h1>
+        <div class="hero-sub">private intelligence · always on</div>
 
-    <!-- ── OVERVIEW ── -->
-    <div class="view active" id="view-overview">
-      <div class="stats">
-        <div class="stat-card">
-          <div class="label">Messages</div>
-          <div class="value" id="stat-messages">0</div>
-          <div class="sub">total ingested</div>
+        <div class="chatbar">
+          <input type="text" id="chat-input" placeholder="Message MOTHERSHIP…" autocomplete="off"
+                 onkeydown="if(event.key==='Enter') sendMessage()">
+          <button onclick="sendMessage()" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14M13 6l6 6-6 6"/>
+            </svg>
+          </button>
         </div>
-        <div class="stat-card">
-          <div class="label">Sources</div>
-          <div class="value" id="stat-sources">0</div>
-          <div class="sub" id="stat-sources-detail">—</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Uptime</div>
-          <div class="value" id="stat-uptime">0s</div>
-          <div class="sub">since last boot</div>
-        </div>
-        <div class="stat-card">
-          <div class="label">Phase</div>
-          <div class="value" style="color: var(--accent);">1</div>
-          <div class="sub">foundation</div>
-        </div>
+
+        <div class="thread" id="chat-thread"></div>
       </div>
 
-      <div class="grid">
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Recent Messages</h2>
-            <div class="sources-bar" id="source-filters"></div>
-          </div>
-          <div class="panel-body" id="overview-messages">
-            <div class="empty">No messages yet.</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header"><h2>System Log</h2></div>
-          <div class="panel-body" id="overview-logs">
-            <div class="empty">Waiting for activity...</div>
-          </div>
-        </div>
+      <div class="stat-strip">
+        <div class="stat"><span class="stat-val" id="stat-messages">0</span><span>messages</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-val" id="stat-sources">0</span><span>sources</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-val" id="stat-uptime">0s</span><span>uptime</span></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><span class="stat-val">1</span><span>phase · foundation</span></div>
       </div>
 
-      <div class="quick-input">
-        <input type="text" id="quick-text" placeholder="Type a message to ingest manually..."
-               onkeydown="if(event.key==='Enter') sendMessage()">
-        <button onclick="sendMessage()">SEND</button>
+      <div class="section-head">
+        <h2>Recent Topics</h2>
+        <span class="count-chip" id="topics-count">—</span>
       </div>
-    </div>
+      <div class="topics-grid" id="topics-grid">
+        <div class="empty" style="grid-column: 1 / -1;">No topics yet.</div>
+      </div>
+    </section>
 
     <!-- ── QUANTUM MIRROR ── -->
-    <div class="view" id="view-mirror">
-      <div class="grid-3">
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Mental Models</h2>
-            <span class="count" id="mm-count">0</span>
-          </div>
-          <div class="panel-body" id="mm-list">
-            <div class="empty">Loading...</div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Learning Style</h2>
-          </div>
-          <div class="panel-body flush" id="ls-body">
-            <div class="empty">Loading...</div>
+    <section class="view" id="view-mirror">
+      <div class="page-head">
+        <h1>Quantum Mirror</h1>
+        <div class="page-sub">cognitive profile</div>
+      </div>
+      <div class="mirror-grid">
+        <div class="mirror-col">
+          <div class="mirror-panel">
+            <div class="mirror-panel-head">
+              <h2>Mental Models</h2>
+              <span class="pill strong" id="mm-count">0</span>
+            </div>
+            <div class="mirror-panel-body" id="mm-list"><div class="empty">Loading…</div></div>
           </div>
         </div>
-
-        <div class="panel">
-          <div class="panel-header">
-            <h2>Knowledge Graph</h2>
-            <span class="count" id="kg-count">0</span>
+        <div class="mirror-col">
+          <div class="mirror-panel">
+            <div class="mirror-panel-head"><h2>Learning Style</h2></div>
+            <div class="mirror-panel-body flush" id="ls-body"><div class="empty">Loading…</div></div>
           </div>
-          <div class="panel-body" id="kg-list">
-            <div class="empty">Loading...</div>
+          <div class="mirror-panel">
+            <div class="mirror-panel-head">
+              <h2>Knowledge Graph</h2>
+              <span class="pill strong" id="kg-count">0</span>
+            </div>
+            <div class="mirror-panel-body" id="kg-list"><div class="empty">Loading…</div></div>
           </div>
         </div>
       </div>
-
-      <div class="panel">
-        <div class="panel-header">
+      <div class="mirror-panel">
+        <div class="mirror-panel-head">
           <h2>Resonance Log</h2>
-          <span class="count" id="rl-count">0</span>
+          <span class="pill strong" id="rl-count">0</span>
         </div>
-        <div class="panel-body" id="rl-list">
+        <div class="mirror-panel-body" id="rl-list">
           <div class="empty">No resonance entries yet. Patterns of engagement will appear here as the Mirror learns.</div>
         </div>
       </div>
-    </div>
+    </section>
 
     <!-- ── MESSAGES ── -->
-    <div class="view" id="view-messages">
-      <div class="panel">
-        <div class="panel-header">
-          <h2>All Messages</h2>
-          <div class="sources-bar" id="messages-source-filters"></div>
-        </div>
-        <div class="panel-body" id="all-messages" style="max-height: 70vh;">
-          <div class="empty">No messages yet.</div>
+    <section class="view" id="view-messages">
+      <div class="page-head">
+        <h1>Messages</h1>
+        <div class="source-pills" id="messages-source-filters"></div>
+      </div>
+      <div class="messages-list" id="all-messages">
+        <div class="empty">No messages yet.</div>
+      </div>
+    </section>
+
+    <!-- ── SYSTEM LOG ── -->
+    <section class="view" id="view-logs">
+      <div class="page-head">
+        <h1>System Log</h1>
+        <div class="page-sub">raw telemetry</div>
+      </div>
+      <div class="mirror-panel">
+        <div class="log-container" id="all-logs">
+          <div class="empty">Waiting for activity…</div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- ── LOGS ── -->
-    <div class="view" id="view-logs">
-      <div class="panel">
-        <div class="panel-header"><h2>System Log</h2></div>
-        <div class="panel-body" id="all-logs" style="max-height: 75vh;">
-          <div class="empty">Waiting for activity...</div>
-        </div>
-      </div>
-    </div>
+  </main>
 
-  </div>
-
-  <!-- ── Detail Modal ── -->
+  <!-- Modal -->
   <div class="modal-overlay" id="modal" onclick="if(event.target===this) closeModal()">
     <div class="modal">
       <div class="modal-header">
@@ -652,127 +1379,245 @@
     const API = '/api';
     let currentSourceFilter = null;
 
-    // ── Tabs ──
-    document.querySelectorAll('.tab').forEach(tab => {
+    /* ── Auth bridge (Phase 6 #2) ──
+       Every call goes through authFetch so cookies flow on the request and
+       a 401 flips the login modal back up. checkAuth() runs at boot; the
+       dashboard's refreshAll loop is gated behind a successful auth check. */
+    const authFetch = (url, opts = {}) => fetch(url, { credentials: 'include', ...opts });
+
+    let authUser = null;
+    let refreshIntervalId = null;
+
+    async function checkAuth() {
+      try {
+        const res = await authFetch(`${API}/auth/me`);
+        if (res.ok) {
+          const data = await res.json();
+          authUser = data.user;
+          document.getElementById('loginModal').classList.add('hidden');
+          const chip = document.getElementById('userChip');
+          chip.classList.remove('hidden');
+          document.getElementById('userChipName').textContent = authUser.display_name || authUser.email;
+          return true;
+        }
+      } catch (_) {}
+      authUser = null;
+      document.getElementById('loginModal').classList.remove('hidden');
+      document.getElementById('userChip').classList.add('hidden');
+      return false;
+    }
+
+    async function doLogin(email, password) {
+      const errEl = document.getElementById('loginError');
+      errEl.textContent = '';
+      try {
+        const res = await authFetch(`${API}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          errEl.textContent = body.error || 'login failed';
+          return false;
+        }
+        const ok = await checkAuth();
+        if (ok) startDashboard();
+        return true;
+      } catch (err) {
+        errEl.textContent = err.message || 'login failed';
+        return false;
+      }
+    }
+
+    async function doLogout() {
+      try { await authFetch(`${API}/auth/logout`, { method: 'POST' }); } catch (_) {}
+      if (refreshIntervalId) { clearInterval(refreshIntervalId); refreshIntervalId = null; }
+      authUser = null;
+      document.getElementById('userChip').classList.add('hidden');
+      document.getElementById('loginModal').classList.remove('hidden');
+      document.getElementById('loginEmail').value = '';
+      document.getElementById('loginPassword').value = '';
+    }
+
+    function startDashboard() {
+      if (typeof refreshAll === 'function') refreshAll();
+      if (!refreshIntervalId && typeof refreshAll === 'function') {
+        refreshIntervalId = setInterval(refreshAll, 3000);
+      }
+    }
+
+    // Wire up the login form + logout button as soon as the DOM is parsed.
+    document.addEventListener('DOMContentLoaded', () => {
+      const form = document.getElementById('loginForm');
+      if (form) {
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const email = document.getElementById('loginEmail').value.trim();
+          const password = document.getElementById('loginPassword').value;
+          await doLogin(email, password);
+        });
+      }
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn) logoutBtn.addEventListener('click', doLogout);
+    });
+
+    /* ── Tabs ── */
+    document.querySelectorAll('.nav-tab').forEach(tab => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
         tab.classList.add('active');
         document.getElementById('view-' + tab.dataset.view).classList.add('active');
         if (tab.dataset.view === 'mirror') refreshMirror();
         if (tab.dataset.view === 'messages') refreshAllMessages();
         if (tab.dataset.view === 'logs') refreshAllLogs();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
 
-    // ── Status ──
+    /* ── Status ── */
     async function refreshStatus() {
       try {
-        const res = await fetch(`${API}/status`);
+        const res = await authFetch(`${API}/status`);
         const data = await res.json();
         document.getElementById('stat-messages').textContent = data.messageCount;
         document.getElementById('stat-sources').textContent = data.sources.length;
-        if (data.sources.length > 0) {
-          document.getElementById('stat-sources-detail').textContent =
-            data.sources.map(s => `${s.source} (${s.count})`).join(', ');
-          renderSourceFilters(data.sources);
-        }
+        if (data.sources.length > 0) renderSourceFilters(data.sources);
         const secs = Math.floor(data.uptime);
         const mins = Math.floor(secs / 60);
         const hrs = Math.floor(mins / 60);
         document.getElementById('stat-uptime').textContent =
           hrs > 0 ? `${hrs}h ${mins % 60}m` : mins > 0 ? `${mins}m` : `${secs}s`;
+        document.getElementById('status-text').textContent = 'ONLINE';
+        const dot = document.querySelector('.nav-status .dot');
+        dot.style.background = 'var(--green)';
+        dot.style.boxShadow = '0 0 10px rgba(132, 211, 164, 0.6)';
       } catch (e) {
         document.getElementById('status-text').textContent = 'OFFLINE';
-        document.querySelector('.status-dot').style.background = 'var(--red)';
+        const dot = document.querySelector('.nav-status .dot');
+        dot.style.background = 'var(--red)';
+        dot.style.boxShadow = '0 0 10px rgba(232,122,125,0.6)';
       }
     }
 
     function renderSourceFilters(sources) {
       const html = ['<span class="source-pill ' + (currentSourceFilter === null ? 'active' : '') + '" onclick="setSourceFilter(null)">all</span>']
-        .concat(sources.map(s => `<span class="source-pill ${currentSourceFilter === s.source ? 'active' : ''}" onclick="setSourceFilter('${s.source}')">${s.source} ${s.count}</span>`))
+        .concat(sources.map(s => `<span class="source-pill ${currentSourceFilter === s.source ? 'active' : ''}" onclick="setSourceFilter('${s.source}')">${s.source} · ${s.count}</span>`))
         .join('');
-      document.getElementById('source-filters').innerHTML = html;
-      document.getElementById('messages-source-filters').innerHTML = html;
+      const el = document.getElementById('messages-source-filters');
+      if (el) el.innerHTML = html;
     }
 
     function setSourceFilter(src) {
       currentSourceFilter = src;
-      refreshMessages();
       refreshAllMessages();
       refreshStatus();
     }
 
-    // ── Messages (overview + all) ──
+    /* ── Time ── */
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const t = new Date(iso + 'Z').getTime();
+      const diff = Date.now() - t;
+      const s = Math.floor(diff / 1000);
+      if (s < 60) return `${s}s ago`;
+      const m = Math.floor(s / 60);
+      if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m / 60);
+      if (h < 24) return `${h}h ago`;
+      const d = Math.floor(h / 24);
+      return `${d}d ago`;
+    }
+
+    /* ── Topics ── */
+    async function refreshTopics() {
+      try {
+        const res = await authFetch(`${API}/messages?limit=8`);
+        const msgs = await res.json();
+        renderTopics(msgs);
+      } catch (e) {}
+    }
+    function renderTopics(msgs) {
+      const grid = document.getElementById('topics-grid');
+      document.getElementById('topics-count').textContent = msgs.length;
+      if (!msgs.length) {
+        grid.innerHTML = '<div class="empty" style="grid-column: 1 / -1;">No topics yet.</div>';
+        return;
+      }
+      grid.innerHTML = msgs.slice(0, 8).map(m => {
+        const title = (m.category && m.category !== 'uncategorized') ? m.category : firstLine(m.content, 56);
+        const snippet = (m.content || '').replace(/\s+/g, ' ').trim();
+        return `
+          <div class="topic-card source-${escapeAttr(m.source)}" onclick="openMessage('${escapeAttr(m.id)}')">
+            <div class="topic-source">${escapeHtml(m.source)}</div>
+            <div class="topic-title">${escapeHtml(title)}</div>
+            <div class="topic-snippet">${escapeHtml(snippet)}</div>
+            <div class="topic-time">${relativeTime(m.created_at)}</div>
+          </div>
+        `;
+      }).join('');
+    }
+    function firstLine(s, n) {
+      if (!s) return '';
+      const line = s.split('\n')[0].trim();
+      return line.length > n ? line.slice(0, n) + '…' : line;
+    }
+
+    /* ── Messages ── */
     function renderMessages(messages, containerId) {
       const container = document.getElementById(containerId);
       if (!messages.length) {
-        container.innerHTML = '<div class="empty">No messages yet.</div>';
+        container.innerHTML = '<div class="empty">No messages found.</div>';
         return;
       }
       container.innerHTML = messages.map(m => `
-        <div class="message" onclick="openMessage('${m.id}')">
-          <div class="meta">
-            <span class="source source-${m.source}">${m.source}</span>
-            <span class="time">${new Date(m.created_at + 'Z').toLocaleString()}</span>
+        <div class="message source-${escapeAttr(m.source)}" onclick="openMessage('${escapeAttr(m.id)}')">
+          <div class="msg-head">
+            <span class="msg-source">${escapeHtml(m.source)}</span>
+            <span class="msg-time">${new Date(m.created_at + 'Z').toLocaleString()}</span>
           </div>
-          <div class="content">${escapeHtml(m.content).substring(0, 300)}</div>
+          <div class="msg-content">${escapeHtml(m.content)}</div>
         </div>
       `).join('');
-    }
-
-    async function refreshMessages() {
-      try {
-        const q = new URLSearchParams({ limit: 20 });
-        if (currentSourceFilter) q.set('source', currentSourceFilter);
-        const res = await fetch(`${API}/messages?${q}`);
-        renderMessages(await res.json(), 'overview-messages');
-      } catch (e) {}
     }
 
     async function refreshAllMessages() {
       try {
         const q = new URLSearchParams({ limit: 200 });
         if (currentSourceFilter) q.set('source', currentSourceFilter);
-        const res = await fetch(`${API}/messages?${q}`);
+        const res = await authFetch(`${API}/messages?${q}`);
         renderMessages(await res.json(), 'all-messages');
       } catch (e) {}
     }
 
-    // ── Logs ──
+    /* ── Logs ── */
     function renderLogs(logs, containerId) {
       const container = document.getElementById(containerId);
       if (!logs.length) {
-        container.innerHTML = '<div class="empty">Waiting for activity...</div>';
+        container.innerHTML = '<div class="empty">Waiting for activity…</div>';
         return;
       }
       container.innerHTML = logs.map(l => `
         <div class="log-entry">
           <span class="log-time">${new Date(l.created_at + 'Z').toLocaleTimeString()}</span>
-          <span class="log-source">${l.source}</span>
+          <span class="log-source" data-src="${escapeAttr(l.source)}">${escapeHtml(l.source)}</span>
           <span class="log-msg">${escapeHtml(l.message)}</span>
         </div>
       `).join('');
     }
 
-    async function refreshLogs() {
-      try {
-        const res = await fetch(`${API}/logs?limit=30`);
-        renderLogs(await res.json(), 'overview-logs');
-      } catch (e) {}
-    }
-
     async function refreshAllLogs() {
       try {
-        const res = await fetch(`${API}/logs?limit=200`);
+        const res = await authFetch(`${API}/logs?limit=200`);
         renderLogs(await res.json(), 'all-logs');
       } catch (e) {}
     }
 
-    // ── Quantum Mirror ──
+    /* ── Mirror ── */
     async function refreshMirror() {
       try {
-        const res = await fetch(`${API}/mirror`);
+        const res = await authFetch(`${API}/mirror`);
         const m = await res.json();
         renderMentalModels(m.mental_models || []);
         renderLearningStyle(m.learning_style || {});
@@ -780,35 +1625,27 @@
         renderResonance(m.resonance_log || []);
       } catch (e) {}
     }
-
     function renderMentalModels(models) {
       document.getElementById('mm-count').textContent = models.length;
       const container = document.getElementById('mm-list');
-      if (!models.length) {
-        container.innerHTML = '<div class="empty">No mental models.</div>';
-        return;
-      }
+      if (!models.length) { container.innerHTML = '<div class="empty">No mental models.</div>'; return; }
       container.innerHTML = models.map(m => `
         <div class="mirror-item" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(m)).replace(/'/g, "&#39;")}, "Mental Model")'>
           <div class="title">
             <span>${escapeHtml(m.name)}</span>
-            <span class="tag">${Math.round((m.strength || 0) * 100)}%</span>
+            <span class="pill strong">${Math.round((m.strength || 0) * 100)}%</span>
           </div>
           <div class="desc">${escapeHtml(m.description || '')}</div>
           <div class="strength-bar"><div class="strength-fill" style="width:${(m.strength || 0) * 100}%"></div></div>
-          <div class="tags">${(m.tags || []).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
+          <div class="tags">${(m.tags || []).map(t => `<span class="pill">${escapeHtml(t)}</span>`).join('')}</div>
         </div>
       `).join('');
     }
-
     function renderLearningStyle(ls) {
       const container = document.getElementById('ls-body');
-      if (!ls || !ls.preferences) {
-        container.innerHTML = '<div class="empty">No learning style.</div>';
-        return;
-      }
+      if (!ls || !ls.preferences) { container.innerHTML = '<div class="empty">No learning style.</div>'; return; }
       const prefsHtml = (ls.preferences || []).map(p => `
-        <div class="learn-row" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(p)).replace(/'/g, "&#39;")}, "Learning Preference")' style="cursor:pointer;">
+        <div class="learn-row" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(p)).replace(/'/g, "&#39;")}, "Learning Preference")'>
           <div class="mode">${escapeHtml(p.mode)}</div>
           <div class="bar-wrap"><div class="bar-fill" style="width:${(p.score || 0) * 100}%"></div></div>
           <div class="score">${Math.round((p.score || 0) * 100)}%</div>
@@ -816,38 +1653,31 @@
       `).join('');
       const avoidHtml = (ls.avoid || []).length
         ? `<div class="avoid-list">
-            <div class="label">Avoid</div>
-            <ul>${ls.avoid.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
-          </div>`
+             <div class="label">Avoid</div>
+             <ul>${ls.avoid.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+           </div>`
         : '';
       container.innerHTML = `
-        <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;">
-          Primary: <span style="color:var(--accent);">${escapeHtml(ls.primary || '—')}</span>
-        </div>
+        <div class="learn-primary">Primary · <strong>${escapeHtml(ls.primary || '—')}</strong></div>
         ${prefsHtml}
         ${avoidHtml}
       `;
     }
-
     function renderKnowledgeGraph(nodes) {
       document.getElementById('kg-count').textContent = nodes.length;
       const container = document.getElementById('kg-list');
-      if (!nodes.length) {
-        container.innerHTML = '<div class="empty">No knowledge nodes.</div>';
-        return;
-      }
+      if (!nodes.length) { container.innerHTML = '<div class="empty">No knowledge nodes.</div>'; return; }
       container.innerHTML = nodes.map(k => `
         <div class="mirror-item" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(k)).replace(/'/g, "&#39;")}, "Knowledge Node")'>
           <div class="title">
             <span>${escapeHtml(k.topic)}</span>
-            <span class="tag tag-level-${k.level}">${escapeHtml(k.level)}</span>
+            <span class="pill level-${escapeAttr(k.level || '')}">${escapeHtml(k.level || '')}</span>
           </div>
           <div class="desc">${escapeHtml(k.notes || '')}</div>
-          <div class="tags">${(k.connections || []).map(c => `<span class="tag">↔ ${escapeHtml(c)}</span>`).join('')}</div>
+          <div class="tags">${(k.connections || []).map(c => `<span class="pill">↔ ${escapeHtml(c)}</span>`).join('')}</div>
         </div>
       `).join('');
     }
-
     function renderResonance(entries) {
       document.getElementById('rl-count').textContent = entries.length;
       const container = document.getElementById('rl-list');
@@ -856,28 +1686,28 @@
         return;
       }
       container.innerHTML = entries.slice().reverse().map(r => `
-        <div class="resonance-entry" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(r)).replace(/'/g, "&#39;")}, "Resonance Entry")' style="cursor:pointer;">
+        <div class="resonance-entry" onclick='openMirrorDetail(${JSON.stringify(JSON.stringify(r)).replace(/'/g, "&#39;")}, "Resonance Entry")'>
           <div class="r-meta">
-            <span class="r-type r-type-${r.type}">${r.type}</span>
-            <span style="color:var(--muted);">${r.created_at ? new Date(r.created_at).toLocaleString() : ''}</span>
-            <span style="color:${r.score >= 0 ? 'var(--green)' : 'var(--red)'};">score ${r.score}</span>
+            <span class="r-type r-type-${escapeAttr(r.type)}">${escapeHtml(r.type)}</span>
+            <span class="r-time">${r.created_at ? new Date(r.created_at).toLocaleString() : ''}</span>
+            <span class="r-score" style="color:${r.score >= 0 ? 'var(--green)' : 'var(--red)'};">score ${r.score}</span>
           </div>
-          <div style="color:var(--text);">${escapeHtml(r.content || '')}</div>
+          <div class="r-content">${escapeHtml(r.content || '')}</div>
         </div>
       `).join('');
     }
 
-    // ── Modal ──
+    /* ── Modal ── */
     async function openMessage(id) {
       try {
-        const res = await fetch(`${API}/messages/${id}`);
+        const res = await authFetch(`${API}/messages/${id}`);
         if (!res.ok) return;
         const m = await res.json();
         document.getElementById('modal-title').textContent = 'Message Detail';
         document.getElementById('modal-body').innerHTML = `
           <div class="field">
             <div class="field-label">Source</div>
-            <div class="field-value"><span class="source source-${m.source}">${m.source}</span></div>
+            <div class="field-value">${escapeHtml(m.source)}</div>
           </div>
           <div class="field">
             <div class="field-label">Category</div>
@@ -891,59 +1721,106 @@
             <div class="field-label">Content</div>
             <div class="field-value">${escapeHtml(m.content)}</div>
           </div>
-          ${(m.tags && m.tags.length) ? `<div class="field"><div class="field-label">Tags</div><div class="field-value">${m.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ')}</div></div>` : ''}
+          ${(m.tags && m.tags.length) ? `<div class="field"><div class="field-label">Tags</div><div class="field-value">${m.tags.map(t => `<span class="pill">${escapeHtml(t)}</span>`).join(' ')}</div></div>` : ''}
           ${(m.metadata && Object.keys(m.metadata).length) ? `<div class="field"><div class="field-label">Metadata</div><pre>${escapeHtml(JSON.stringify(m.metadata, null, 2))}</pre></div>` : ''}
           <div class="field">
             <div class="field-label">ID</div>
-            <div class="field-value" style="font-size:11px;color:var(--muted);">${m.id}</div>
+            <div class="field-value" style="font-size:11px;color:var(--muted);font-family:'Geist Mono',monospace;">${m.id}</div>
           </div>
         `;
         document.getElementById('modal').classList.add('active');
       } catch (e) {}
     }
-
     function openMirrorDetail(jsonStr, label) {
       const obj = JSON.parse(jsonStr);
       document.getElementById('modal-title').textContent = label;
-      document.getElementById('modal-body').innerHTML = `
-        <pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>
-      `;
+      document.getElementById('modal-body').innerHTML = `<pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`;
       document.getElementById('modal').classList.add('active');
     }
-
-    function closeModal() {
-      document.getElementById('modal').classList.remove('active');
-    }
+    function closeModal() { document.getElementById('modal').classList.remove('active'); }
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-    // ── Send ──
+    /* ── Send ── */
+    let sending = false;
     async function sendMessage() {
-      const input = document.getElementById('quick-text');
+      if (sending) return;
+      const input = document.getElementById('chat-input');
+      const sendBtn = document.querySelector('.chatbar button');
       const text = input.value.trim();
       if (!text) return;
-      await fetch(`${API}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text, source: 'dashboard' })
-      });
+      sending = true;
       input.value = '';
-      refreshAll();
+      input.disabled = true;
+      sendBtn.disabled = true;
+      appendBubble('user', text);
+      const pending = appendBubble('system', '', { pending: true });
+      try {
+        const res = await authFetch(`${API}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setBubbleText(pending, data.reply || '(no reply)');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setBubbleText(pending, `⚠ ${err.error || 'Chat failed. Check server logs.'}`);
+        }
+      } catch (e) {
+        setBubbleText(pending, '⚠ Transmission failed. Check connection.');
+      } finally {
+        sending = false;
+        input.disabled = false;
+        sendBtn.disabled = false;
+        input.focus();
+        refreshAll();
+      }
+    }
+    function appendBubble(kind, text, { pending = false } = {}) {
+      const thread = document.getElementById('chat-thread');
+      thread.classList.add('active');
+      const b = document.createElement('div');
+      b.className = 'bubble ' + kind + (pending ? ' pending' : '');
+      const label = kind === 'user' ? 'you' : 'mothership';
+      b.innerHTML = `<div class="bubble-meta">${label}</div><div class="bubble-body">${
+        pending ? '<span class="typing"><span></span><span></span><span></span></span>' : escapeHtml(text)
+      }</div>`;
+      thread.appendChild(b);
+      b.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      return b;
+    }
+    function setBubbleText(bubble, text) {
+      bubble.classList.remove('pending');
+      const body = bubble.querySelector('.bubble-body');
+      if (body) body.textContent = text;
+      bubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
 
+    /* ── Utilities ── */
     function escapeHtml(str) {
       const div = document.createElement('div');
       div.textContent = str == null ? '' : String(str);
       return div.innerHTML;
     }
+    function escapeAttr(str) {
+      return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[c]));
+    }
 
     function refreshAll() {
       refreshStatus();
-      refreshMessages();
-      refreshLogs();
+      refreshTopics();
     }
 
-    refreshAll();
-    setInterval(refreshAll, 3000);
+    // Boot: check auth first; the refreshAll loop starts only if the session
+    // is valid. If not, the login modal is already visible and will trigger
+    // startDashboard() via doLogin on successful sign-in.
+    (async () => {
+      const ok = await checkAuth();
+      if (ok) startDashboard();
+    })();
   </script>
 </body>
 </html>
