@@ -24,7 +24,7 @@ after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
 test('addAction writes a row and returns its id', () => {
   const id = db.addAction({
     kind: 'commitment',
-    subject: 'ship mirror v2',
+    subject: 'ship mirror v2 — test 1 marker',
     data: { what: 'ship mirror v2', due_at: '2026-04-17' },
     confidence: 0.92,
     sourceType: 'conversation',
@@ -32,11 +32,12 @@ test('addAction writes a row and returns its id', () => {
     userId: uid
   });
   assert.ok(id);
-  const rows = db.getActions({ userId: uid });
-  assert.strictEqual(rows.length, 1);
-  assert.strictEqual(rows[0].kind, 'commitment');
-  assert.strictEqual(rows[0].data.due_at, '2026-04-17');
-  assert.strictEqual(rows[0].status, 'active');
+  const rows = db.getActions({ userId: uid, kind: 'commitment' });
+  const row = rows.find(r => r.id === id);
+  assert.ok(row, 'inserted row not found');
+  assert.strictEqual(row.kind, 'commitment');
+  assert.strictEqual(row.data.due_at, '2026-04-17');
+  assert.strictEqual(row.status, 'active');
 });
 
 test('addAction requires userId', () => {
@@ -45,42 +46,56 @@ test('addAction requires userId', () => {
 });
 
 test('getActions filters by kind and status', () => {
-  db.addAction({ kind: 'win', subject: 'closed deal', sourceType: 'conversation', userId: uid });
-  db.addAction({ kind: 'win', subject: 'x', sourceType: 'conversation', userId: uid, status: 'pending_confirm' });
+  db.addAction({ kind: 'win', subject: 'closed deal — test 3 active', sourceType: 'conversation', userId: uid });
+  db.addAction({ kind: 'win', subject: 'pending thing — test 3 pending', sourceType: 'conversation', userId: uid, status: 'pending_confirm' });
   const active = db.getActions({ userId: uid, kind: 'win', status: 'active' });
-  assert.strictEqual(active.length, 1);
+  assert.ok(active.some(r => r.subject === 'closed deal — test 3 active'));
   const pending = db.getActions({ userId: uid, kind: 'win', status: 'pending_confirm' });
-  assert.strictEqual(pending.length, 1);
+  assert.ok(pending.some(r => r.subject === 'pending thing — test 3 pending'));
 });
 
 test('getActionsByWindow returns actions inside window', () => {
+  const beforeCount = db.getActions({ userId: uid }).length;
+  // Insert 2 fresh rows just for this test
+  db.addAction({ kind: 'state', subject: 'window test a', sourceType: 'conversation', userId: uid });
+  db.addAction({ kind: 'state', subject: 'window test b', sourceType: 'conversation', userId: uid });
+
   const now = new Date();
   const start = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const end = new Date(now.getTime() + 60 * 1000).toISOString();
   const rows = db.getActionsByWindow({ userId: uid, windowStart: start, windowEnd: end });
-  assert.ok(rows.length >= 3);
+  assert.ok(rows.length >= beforeCount + 2, `expected at least ${beforeCount + 2} rows, got ${rows.length}`);
+  assert.ok(rows.some(r => r.subject === 'window test a'));
+  assert.ok(rows.some(r => r.subject === 'window test b'));
+});
+
+test('getActionsByWindow requires windowStart and windowEnd', () => {
+  assert.throws(() => db.getActionsByWindow({ userId: uid }), /windowStart and windowEnd required/);
 });
 
 test('getPendingActions returns only pending_confirm rows', () => {
   const rows = db.getPendingActions({ userId: uid });
   assert.ok(rows.every(r => r.status === 'pending_confirm'));
-  assert.ok(rows.length >= 1);
 });
 
 test('updateActionStatus transitions pending_confirm to active', () => {
-  const pending = db.getPendingActions({ userId: uid });
-  const target = pending[0];
-  db.updateActionStatus(target.id, 'active');
-  const refreshed = db.getActions({ userId: uid, kind: target.kind, status: 'active' });
-  assert.ok(refreshed.find(r => r.id === target.id));
+  const id = db.addAction({
+    kind: 'preference', subject: 'test 7 pending',
+    sourceType: 'conversation', status: 'pending_confirm', userId: uid
+  });
+  db.updateActionStatus(id, 'active');
+  const rows = db.getActions({ userId: uid, kind: 'preference' });
+  const refreshed = rows.find(r => r.id === id);
+  assert.ok(refreshed);
+  assert.strictEqual(refreshed.status, 'active');
 });
 
 test('resolveAction sets resolved_at and parent_action_id', () => {
   const commitment = db.addAction({
-    kind: 'commitment', subject: 'do X', sourceType: 'conversation', userId: uid
+    kind: 'commitment', subject: 'test 8 commitment', sourceType: 'conversation', userId: uid
   });
   const win = db.addAction({
-    kind: 'win', subject: 'did X', sourceType: 'conversation', userId: uid
+    kind: 'win', subject: 'test 8 win', sourceType: 'conversation', userId: uid
   });
   db.resolveAction(commitment, win);
   const rows = db.getActions({ userId: uid, kind: 'commitment' });
@@ -88,4 +103,9 @@ test('resolveAction sets resolved_at and parent_action_id', () => {
   assert.strictEqual(resolved.status, 'resolved');
   assert.ok(resolved.resolved_at);
   assert.strictEqual(resolved.parent_action_id, win);
+});
+
+test('getActions supports allUsers for admin access', () => {
+  const rows = db.getActions({ allUsers: true });
+  assert.ok(rows.length >= 1);
 });

@@ -636,10 +636,11 @@ function _rowsToActions(stmt) {
   return rows;
 }
 
-function getActions({ userId, kind = null, status = null, limit = 200, offset = 0 } = {}) {
-  if (!userId) throw new Error('getActions: userId required');
-  let q = 'SELECT * FROM actions WHERE user_id = ?';
-  const p = [userId];
+function getActions({ userId = null, kind = null, status = null, limit = 200, offset = 0, allUsers = false } = {}) {
+  if (!userId && !allUsers) throw new Error('getActions: userId required (or allUsers=true for admin)');
+  let q = 'SELECT * FROM actions WHERE 1=1';
+  const p = [];
+  if (!allUsers) { q += ' AND user_id = ?'; p.push(userId); }
   if (kind) { q += ' AND kind = ?'; p.push(kind); }
   if (status) { q += ' AND status = ?'; p.push(status); }
   q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
@@ -649,14 +650,16 @@ function getActions({ userId, kind = null, status = null, limit = 200, offset = 
   return _rowsToActions(stmt);
 }
 
-function getActionsByWindow({ userId, windowStart, windowEnd }) {
-  if (!userId) throw new Error('getActionsByWindow: userId required');
-  const stmt = db.prepare(
-    `SELECT * FROM actions
-     WHERE user_id = ? AND created_at >= ? AND created_at <= ?
-     ORDER BY created_at ASC`
-  );
-  stmt.bind([userId, windowStart, windowEnd]);
+function getActionsByWindow({ userId = null, windowStart, windowEnd, allUsers = false }) {
+  if (!userId && !allUsers) throw new Error('getActionsByWindow: userId required (or allUsers=true for admin)');
+  if (!windowStart || !windowEnd) throw new Error('getActionsByWindow: windowStart and windowEnd required');
+  let q = 'SELECT * FROM actions WHERE 1=1';
+  const p = [];
+  if (!allUsers) { q += ' AND user_id = ?'; p.push(userId); }
+  q += ' AND created_at >= ? AND created_at <= ? ORDER BY created_at ASC';
+  p.push(windowStart, windowEnd);
+  const stmt = db.prepare(q);
+  stmt.bind(p);
   return _rowsToActions(stmt);
 }
 
