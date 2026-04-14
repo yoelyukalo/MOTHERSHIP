@@ -88,7 +88,7 @@ async function runNow({ userId }) {
     const { start, end } = buildWindow();
     const actions = db.getActionsByWindow({ userId, windowStart: start, windowEnd: end });
 
-    const mirrorRows = db.getMirrorEntries({ userId, limit: 100 });
+    const mirrorRows = db.getMirrorEntries({ userId, limit: 100, activeOnly: true });
     const mirrorSnapshot = mirrorRows
       .map(r => `- [${r.category}] (${r.confidence}) ${r.content}`)
       .join('\n') || '(empty)';
@@ -123,7 +123,7 @@ async function runNow({ userId }) {
       userId,
       windowStart: start,
       windowEnd: end,
-      briefingMd: parsed.briefing_md || '',
+      briefingMd: parsed.briefing_md || '(no briefing generated)',
       actionCount: actions.length,
       patternJson: { patterns: parsed.patterns || [] },
       selfCritiqueJson: { items: parsed.self_critique || [] }
