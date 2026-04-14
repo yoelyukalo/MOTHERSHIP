@@ -264,6 +264,75 @@ async function init() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_drafts_status ON satellite_drafts(status)`);
 
+  // --- Phase 5: Action logger + reflection agent ---
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS actions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      data TEXT DEFAULT '{}',
+      confidence REAL DEFAULT 0.8,
+      status TEXT DEFAULT 'active',
+      source_type TEXT NOT NULL,
+      source_id TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      parent_action_id TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_actions_user_created ON actions(user_id, created_at DESC)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_actions_kind_status ON actions(kind, status)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reflections (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      generated_at TEXT DEFAULT (datetime('now')),
+      window_start TEXT NOT NULL,
+      window_end TEXT NOT NULL,
+      briefing_md TEXT NOT NULL,
+      action_count INTEGER,
+      pattern_json TEXT DEFAULT '{}',
+      self_critique_json TEXT DEFAULT '{}',
+      delivered_telegram INTEGER DEFAULT 0,
+      delivered_obsidian TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reflections_user_generated ON reflections(user_id, generated_at DESC)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS prompt_versions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      body TEXT NOT NULL,
+      is_active INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      created_by TEXT,
+      parent_version INTEGER,
+      UNIQUE (name, version)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_prompt_versions_active ON prompt_versions(name, is_active)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS prompt_proposals (
+      id TEXT PRIMARY KEY,
+      prompt_name TEXT NOT NULL,
+      base_version INTEGER NOT NULL,
+      proposed_body TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      replay_results_json TEXT,
+      replay_error TEXT,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_prompt_proposals_status ON prompt_proposals(status)`);
+
   save();
   return db;
 }
