@@ -14,6 +14,7 @@ const retriever = require('./memory/retriever');
 const qm = require('./quantum-mirror');
 const syn = require('./synthesizer');
 const db = require('./database');
+const actionLogger = require('./action-logger');
 
 const MIRROR_TOPK = parseInt(process.env.MIRROR_TOPK || '5', 10);
 const WIKI_TOPK = parseInt(process.env.WIKI_TOPK || '5', 10);
@@ -46,6 +47,11 @@ async function postResponse({ userText, assistantText, sourceId, draftSlug = nul
     });
   } catch (err) {
     db.log('error', 'hooks.postResponse', err.message);
+  }
+  try {
+    await actionLogger.logActionFromTurn({ userText, assistantText, sourceId, userId });
+  } catch (err) {
+    try { db.log('error', 'hooks.postResponse.extractor', err.message); } catch {}
   }
 }
 

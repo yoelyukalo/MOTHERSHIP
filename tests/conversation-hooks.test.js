@@ -76,3 +76,37 @@ test('conversation-hooks — synthesis errors are caught, never thrown', async (
   // Should not throw
   await hooks.postResponse({ userText: 'this is a long enough message to trigger synthesis', assistantText: 'response', sourceId: 't3', userId: testUserId });
 });
+
+test('conversation-hooks — postResponse calls logActionFromTurn and writes action rows', async () => {
+  // quantum-mirror mock (no new entries from synthesis)
+  qm._setClient({
+    messages: { create: async () => ({
+      content: [{ type: 'text', text: JSON.stringify({ new_entries: [], supersede: [], contradictions: [] }) }]
+    }) }
+  });
+
+  // action-extractor mock — returns one high-confidence commitment
+  const extractor = require('../src/extractors/action-extractor');
+  extractor._setClient({
+    messages: { create: async () => ({
+      content: [{ type: 'text', text: JSON.stringify({
+        candidates: [{ kind: 'commitment', subject: 'hook wiring test commit', data: {}, confidence: 0.9 }]
+      }) }]
+    }) }
+  });
+
+  // Also seed the registry so the extractor can load its prompt template
+  const registry = require('../src/prompts/registry');
+  registry.seedFromHardcoded();
+
+  await hooks.postResponse({
+    userText: "I'll do something meaningful and I really mean it this time",
+    assistantText: 'ok',
+    sourceId: 'hook-wiring-source',
+    userId: testUserId
+  });
+
+  const actions = db.getActions({ userId: testUserId, kind: 'commitment' });
+  assert.ok(actions.some(a => a.subject === 'hook wiring test commit'),
+    'postResponse did not write the expected action row');
+});
