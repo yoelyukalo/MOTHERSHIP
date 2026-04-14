@@ -14,14 +14,31 @@ fs.mkdirSync(process.env.MOTHERSHIP_SATELLITES_DIR, { recursive: true });
 const db = require('../../src/database');
 const satellites = require('../../src/satellites');
 const users = require('../../src/auth/users');
+const auth = require('../../src/auth');
+const authSessions = require('../../src/auth/sessions');
+const { v4: uuidv4 } = require('uuid');
 const express = require('express');
 const apiRoutes = require('../../src/routes/api');
 
-let server, baseUrl, testUserId;
+let server, baseUrl, testUserId, adminCookie;
 
 before(async () => {
   await db.init();
+  await auth.init();
   testUserId = await users.createUser({ email: 'sat-api-test@x', password: 'p' });
+  const adminId = await users.createUser({ email: 'test-admin@x', password: 'p' });
+  const raw = db._raw();
+  const stmt = raw.prepare("SELECT id FROM roles WHERE name = 'mothership_admin'");
+  stmt.step();
+  const adminRoleId = stmt.getAsObject().id;
+  stmt.free();
+  raw.run(
+    `INSERT INTO role_assignments (id, principal_type, principal_id, role_id, satellite_id)
+     VALUES (?, 'user', ?, ?, NULL)`,
+    [uuidv4(), adminId, adminRoleId]
+  );
+  db.save();
+  adminCookie = `mothership_sid=${authSessions.createSession(adminId, {}).id}`;
   await satellites.init();
   const app = express();
   app.use(express.json());
@@ -40,7 +57,7 @@ after(async () => {
 async function req(method, pathname, body) {
   const res = await fetch(`${baseUrl}${pathname}`, {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Cookie': adminCookie },
     body: body ? JSON.stringify(body) : undefined
   });
   const text = await res.text();
@@ -165,4 +182,9 @@ test('api — GET /api/satellites/:slug/directives returns history rows', async 
   } else {
     assert.strictEqual(r.status, 404);
   }
+});
+
+test('api — anonymous request to satellites returns 401', async () => {
+  const res = await fetch(`${baseUrl}/api/satellites`);
+  assert.strictEqual(res.status, 401);
 });

@@ -13,6 +13,7 @@ const retriever = require('../memory/retriever');
 const conversation = require('../conversation');
 const hooks = require('../conversation-hooks');
 const satellites = require('../satellites');
+const { requireAuth, requireAnyAuth } = require('../auth/middleware');
 
 // --- Status ---
 
@@ -176,7 +177,7 @@ function statusForError(err) {
 // Drafts routes MUST come first because GET /satellites/:slug would otherwise
 // match GET /satellites/drafts with :slug='drafts'.
 
-router.post('/satellites/drafts', (req, res) => {
+router.post('/satellites/drafts', requireAuth({ permission: 'draft.create' }), (req, res) => {
   try {
     const { slug, name, kind } = req.body || {};
     if (!slug || !name) return res.status(400).json({ error: 'slug and name required' });
@@ -185,17 +186,17 @@ router.post('/satellites/drafts', (req, res) => {
   } catch (err) { res.status(400).json({ error: err.message }); }
 });
 
-router.get('/satellites/drafts', (req, res) => {
+router.get('/satellites/drafts', requireAuth({ permission: 'draft.read' }), (req, res) => {
   res.json(satellites.drafts.list({ status: req.query.status }));
 });
 
-router.get('/satellites/drafts/:slug', (req, res) => {
+router.get('/satellites/drafts/:slug', requireAuth({ permission: 'draft.read' }), (req, res) => {
   const result = satellites.drafts.getDraftWithMessages(req.params.slug);
   if (!result) return res.status(404).json({ error: 'not found' });
   res.json(result);
 });
 
-router.post('/satellites/drafts/:slug/regenerate-brief', async (req, res) => {
+router.post('/satellites/drafts/:slug/regenerate-brief', requireAuth({ permission: 'draft.regenerate_brief' }), async (req, res) => {
   try {
     const brief = await satellites.drafts.regenerateBrief(req.params.slug);
     res.json({ brief });
@@ -204,7 +205,7 @@ router.post('/satellites/drafts/:slug/regenerate-brief', async (req, res) => {
   }
 });
 
-router.post('/satellites/drafts/:slug/status', (req, res) => {
+router.post('/satellites/drafts/:slug/status', requireAuth({ permission: 'draft.edit_status' }), (req, res) => {
   try {
     const { status } = req.body || {};
     if (!DRAFT_STATUSES.has(status)) {
@@ -221,7 +222,7 @@ router.post('/satellites/drafts/:slug/status', (req, res) => {
 
 // Satellites CRUD + lifecycle + directives
 
-router.post('/satellites', async (req, res) => {
+router.post('/satellites', requireAuth({ permission: 'satellite.create' }), async (req, res) => {
   try {
     const { slug, name, kind, visibility, owner, config, from_draft_slug, notes } = req.body || {};
     const result = await satellites.registry.createInstance({
@@ -238,28 +239,30 @@ router.post('/satellites', async (req, res) => {
   }
 });
 
-router.get('/satellites', (req, res) => {
+router.get('/satellites', requireAnyAuth(), (req, res) => {
   const { status, kind, visibility } = req.query;
-  res.json(satellites.registry.listRows({ status, kind, visibility }));
+  const all = satellites.registry.listRows({ status, kind, visibility });
+  const visible = all.filter(row => req.user.can('satellite.read', row.slug));
+  res.json(visible);
 });
 
-router.get('/satellites/:slug', (req, res) => {
+router.get('/satellites/:slug', requireAuth({ permission: 'satellite.read', satelliteParam: 'slug' }), (req, res) => {
   const row = satellites.registry.getBySlug(req.params.slug);
   if (!row) return res.status(404).json({ error: 'not found' });
   res.json(row);
 });
 
-router.post('/satellites/:slug/archive', async (req, res) => {
+router.post('/satellites/:slug/archive', requireAuth({ permission: 'satellite.archive', satelliteParam: 'slug' }), async (req, res) => {
   try { await satellites.registry.archive(req.params.slug); res.json({ status: 'archived' }); }
   catch (err) { res.status(statusForError(err)).json({ error: err.message }); }
 });
 
-router.post('/satellites/:slug/unarchive', async (req, res) => {
+router.post('/satellites/:slug/unarchive', requireAuth({ permission: 'satellite.unarchive', satelliteParam: 'slug' }), async (req, res) => {
   try { await satellites.registry.unarchive(req.params.slug); res.json({ status: 'active' }); }
   catch (err) { res.status(statusForError(err)).json({ error: err.message }); }
 });
 
-router.post('/satellites/:slug/transfer', async (req, res) => {
+router.post('/satellites/:slug/transfer', requireAuth({ permission: 'satellite.transfer', satelliteParam: 'slug' }), async (req, res) => {
   try {
     const { visibility, owner } = req.body || {};
     await satellites.registry.transfer(req.params.slug, { visibility, owner });
@@ -267,7 +270,7 @@ router.post('/satellites/:slug/transfer', async (req, res) => {
   } catch (err) { res.status(statusForError(err)).json({ error: err.message }); }
 });
 
-router.post('/satellites/:slug/visibility', async (req, res) => {
+router.post('/satellites/:slug/visibility', requireAuth({ permission: 'satellite.set_visibility', satelliteParam: 'slug' }), async (req, res) => {
   try {
     const { visibility } = req.body || {};
     await satellites.registry.setVisibility(req.params.slug, visibility);
@@ -275,7 +278,7 @@ router.post('/satellites/:slug/visibility', async (req, res) => {
   } catch (err) { res.status(statusForError(err)).json({ error: err.message }); }
 });
 
-router.post('/satellites/:slug/directives', (req, res) => {
+router.post('/satellites/:slug/directives', requireAuth({ permission: 'satellite.issue_directive', satelliteParam: 'slug' }), (req, res) => {
   try {
     const { kind, payload } = req.body || {};
     if (!kind) return res.status(400).json({ error: 'kind is required' });
@@ -286,7 +289,7 @@ router.post('/satellites/:slug/directives', (req, res) => {
   } catch (err) { res.status(statusForError(err)).json({ error: err.message }); }
 });
 
-router.get('/satellites/:slug/directives', (req, res) => {
+router.get('/satellites/:slug/directives', requireAuth({ permission: 'satellite.read_directives', satelliteParam: 'slug' }), (req, res) => {
   try {
     const entry = satellites.loader.get(req.params.slug);
     if (!entry) return res.status(404).json({ error: 'satellite not loaded' });
