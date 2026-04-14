@@ -605,6 +605,78 @@ function updateWikiEntry(id, { summary, source_ids, tags, embedding, contradicti
   save();
 }
 
+// --- Actions (Phase 5) ---
+
+function addAction({ kind, subject, data = {}, confidence = 0.8, status = 'active',
+                     sourceType, sourceId = null, parentActionId = null, userId }) {
+  if (!userId) throw new Error('addAction: userId required');
+  if (!kind) throw new Error('addAction: kind required');
+  if (!subject) throw new Error('addAction: subject required');
+  if (!sourceType) throw new Error('addAction: sourceType required');
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO actions (id, user_id, kind, subject, data, confidence, status,
+                          source_type, source_id, parent_action_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, userId, kind, subject, JSON.stringify(data), confidence, status,
+     sourceType, sourceId, parentActionId]
+  );
+  save();
+  return id;
+}
+
+function _rowsToActions(stmt) {
+  const rows = [];
+  while (stmt.step()) {
+    const r = stmt.getAsObject();
+    r.data = JSON.parse(r.data || '{}');
+    rows.push(r);
+  }
+  stmt.free();
+  return rows;
+}
+
+function getActions({ userId, kind = null, status = null, limit = 200, offset = 0 } = {}) {
+  if (!userId) throw new Error('getActions: userId required');
+  let q = 'SELECT * FROM actions WHERE user_id = ?';
+  const p = [userId];
+  if (kind) { q += ' AND kind = ?'; p.push(kind); }
+  if (status) { q += ' AND status = ?'; p.push(status); }
+  q += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+  p.push(limit, offset);
+  const stmt = db.prepare(q);
+  stmt.bind(p);
+  return _rowsToActions(stmt);
+}
+
+function getActionsByWindow({ userId, windowStart, windowEnd }) {
+  if (!userId) throw new Error('getActionsByWindow: userId required');
+  const stmt = db.prepare(
+    `SELECT * FROM actions
+     WHERE user_id = ? AND created_at >= ? AND created_at <= ?
+     ORDER BY created_at ASC`
+  );
+  stmt.bind([userId, windowStart, windowEnd]);
+  return _rowsToActions(stmt);
+}
+
+function getPendingActions({ userId }) {
+  return getActions({ userId, status: 'pending_confirm', limit: 100 });
+}
+
+function updateActionStatus(actionId, newStatus) {
+  db.run(`UPDATE actions SET status = ? WHERE id = ?`, [newStatus, actionId]);
+  save();
+}
+
+function resolveAction(commitmentId, resolvingActionId) {
+  db.run(
+    `UPDATE actions SET status = 'resolved', resolved_at = datetime('now'), parent_action_id = ? WHERE id = ?`,
+    [resolvingActionId, commitmentId]
+  );
+  save();
+}
+
 // Test-only escape hatch — lets tests run raw SQL (e.g. to backdate updated_at)
 function _raw() { return db; }
 
@@ -614,5 +686,6 @@ module.exports = {
   getConfig, setConfig,
   addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence,
   addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
+  addAction, getActions, getActionsByWindow, getPendingActions, updateActionStatus, resolveAction,
   _raw
 };
