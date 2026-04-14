@@ -179,7 +179,7 @@ function consoleLogger(slug) {
   };
 }
 
-async function applyBaselineAndKindSchema(sdb, kindModule) {
+function applyBaselineAndKindSchema(sdb, kindModule) {
   sdb.exec(BASELINE_SCHEMA);
   if (kindModule.schema && kindModule.schema.trim()) {
     sdb.exec(kindModule.schema);
@@ -210,6 +210,7 @@ async function createInstance({
 
   const paths = instancePaths(slug);
   let rowInserted = false;
+  let sdb = null;
   try {
     ensureFolderTree(slug);
 
@@ -218,8 +219,8 @@ async function createInstance({
     fs.writeFileSync(paths.configFile, JSON.stringify(mergedConfig, null, 2));
 
     const SQL = await initSqlJs();
-    const sdb = new SQL.Database();
-    await applyBaselineAndKindSchema(sdb, kindModule);
+    sdb = new SQL.Database();
+    applyBaselineAndKindSchema(sdb, kindModule);
 
     // onCreate lifecycle hook — receives raw writable handle
     if (kindModule.onCreate) {
@@ -227,11 +228,12 @@ async function createInstance({
     }
 
     writeDbFile(sdb, paths.dbFile);
-    sdb.close();
 
+    // db_path is stored relative to satellitesDir() so it stays valid
+    // regardless of where MOTHERSHIP_SATELLITES_DIR points.
     const id = insertRow({
       slug, name, kind,
-      db_path: path.relative(path.join(__dirname, '..', '..'), paths.dbFile).replace(/\\/g, '/'),
+      db_path: path.join(slug, 'db.sqlite').replace(/\\/g, '/'),
       owner, visibility,
       status: 'active',
       config_json: JSON.stringify(mergedConfig),
@@ -241,12 +243,15 @@ async function createInstance({
 
     // NOTE: Task 10 (drafts) will add: if (fromDraftSlug) drafts.linkToSatellite(fromDraftSlug, id)
 
-    return { id, slug };
+    return { id, slug, status: 'active' };
   } catch (err) {
     // Rollback: remove folder tree and registry row (best-effort — one failure must not block the other)
     try { fs.rmSync(paths.base, { recursive: true, force: true }); } catch (_) {}
     if (rowInserted) { try { deleteRow(slug); } catch (_) {} }
     throw err;
+  } finally {
+    // sql.js Database holds a WASM heap allocation; close in every path.
+    if (sdb) { try { sdb.close(); } catch (_) {} }
   }
 }
 

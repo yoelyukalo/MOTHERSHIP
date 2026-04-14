@@ -118,3 +118,22 @@ test('registry — createInstance rejects path-traversal kind names', async () =
   assert.ok(!fs.existsSync(path.join(process.env.MOTHERSHIP_SATELLITES_DIR, 'inst-evil')));
   assert.strictEqual(registry.getBySlug('inst-evil'), null);
 });
+
+test('registry — createInstance rolls back folder and row when onCreate throws', async () => {
+  await assert.rejects(
+    registry.createInstance({ slug: 'inst-boom', name: 'Boom', kind: 'throwing-kind' }),
+    /onCreate-boom/
+  );
+  // Folder tree created during try was removed; no registry row left behind.
+  assert.ok(!fs.existsSync(path.join(process.env.MOTHERSHIP_SATELLITES_DIR, 'inst-boom')));
+  assert.strictEqual(registry.getBySlug('inst-boom'), null);
+});
+
+test('registry — createInstance returns { id, slug, status: "active" }', async () => {
+  const result = await registry.createInstance({
+    slug: 'inst-ret', name: 'Return Shape', kind: 'test-kind'
+  });
+  assert.strictEqual(result.status, 'active');
+  assert.strictEqual(result.slug, 'inst-ret');
+  assert.ok(result.id);
+});
