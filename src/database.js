@@ -282,7 +282,7 @@ async function init() {
       parent_action_id TEXT
     )
   `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_actions_user_created ON actions(user_id, created_at DESC)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_actions_user_created ON actions(user_id, created_at)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_actions_kind_status ON actions(kind, status)`);
 
   db.run(`
@@ -300,7 +300,7 @@ async function init() {
       delivered_obsidian TEXT
     )
   `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_reflections_user_generated ON reflections(user_id, generated_at DESC)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_reflections_user_generated ON reflections(user_id, generated_at)`);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS prompt_versions (

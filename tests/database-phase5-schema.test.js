@@ -1,4 +1,5 @@
 const test = require('node:test');
+const { before, after } = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
@@ -8,10 +9,15 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../src/database');
 
-test('phase 5 schema — all four tables exist after init', async (t) => {
+before(async () => {
   await db.init();
-  t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
+});
 
+after(() => {
+  try { fs.unlinkSync(tmpDb); } catch {}
+});
+
+test('phase 5 schema — all four tables exist after init', () => {
   const raw = db._raw();
   const tables = raw.exec(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)[0].values.map(r => r[0]);
 
