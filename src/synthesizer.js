@@ -5,6 +5,18 @@
  * using the active mirror entries as a lens for what matters to Yoel.
  */
 
+/*
+ * Note on prompt sourcing: WIKI_SYNTHESIS is a template function that
+ * takes { existing, turn } and returns a string. The Phase 5 prompt
+ * registry stores only text bodies, not callable templates, so this module
+ * imports WIKI_SYNTHESIS directly from ./memory/synthesis-prompts and
+ * calls it at runtime. The registry entry for 'synthesis.wiki' holds
+ * the .toString() of the function for reflection-agent text diffing only —
+ * approving a proposal to 'synthesis.wiki' creates a new prompt_versions
+ * row but does NOT change this module's runtime behavior until the
+ * template is migrated to a plain text body with {{}} placeholders.
+ */
+
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const ve = require('./memory/vector-engine');

@@ -6,6 +6,18 @@
  * mirror_entries via the vector engine.
  */
 
+/*
+ * Note on prompt sourcing: MIRROR_SYNTHESIS is a template function that
+ * takes { existing, turn } and returns a string. The Phase 5 prompt
+ * registry stores only text bodies, not callable templates, so this module
+ * imports MIRROR_SYNTHESIS directly from ./memory/synthesis-prompts and
+ * calls it at runtime. The registry entry for 'synthesis.mirror' holds
+ * the .toString() of the function for reflection-agent text diffing only —
+ * approving a proposal to 'synthesis.mirror' creates a new prompt_versions
+ * row but does NOT change this module's runtime behavior until the
+ * template is migrated to a plain text body with {{}} placeholders.
+ */
+
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const ve = require('./memory/vector-engine');

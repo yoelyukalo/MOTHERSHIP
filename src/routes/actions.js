@@ -8,10 +8,9 @@
 
 const express = require('express');
 const db = require('../database');
-const actionLogger = require('../action-logger');
+const { logAction, confirmPendingAction, rejectPendingAction, resolveAction } = require('../action-logger');
 const { requireAnyAuth } = require('../auth/middleware');
 const registry = require('../prompts/registry');
-const { logAction } = require('../action-logger');
 
 const router = express.Router();
 
@@ -41,7 +40,7 @@ router.get('/actions/pending', requireAnyAuth(), (req, res) => {
 
 router.post('/actions/:id/confirm', requireAnyAuth(), (req, res) => {
   try {
-    actionLogger.confirmPendingAction(req.params.id);
+    confirmPendingAction(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -50,7 +49,7 @@ router.post('/actions/:id/confirm', requireAnyAuth(), (req, res) => {
 
 router.post('/actions/:id/reject', requireAnyAuth(), (req, res) => {
   try {
-    actionLogger.rejectPendingAction(req.params.id);
+    rejectPendingAction(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -61,7 +60,7 @@ router.post('/actions/:id/resolve', requireAnyAuth(), (req, res) => {
   try {
     const { resolvingActionId } = req.body || {};
     if (!resolvingActionId) return res.status(400).json({ error: 'resolvingActionId required' });
-    actionLogger.resolveAction(req.params.id, resolvingActionId);
+    resolveAction(req.params.id, resolvingActionId);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

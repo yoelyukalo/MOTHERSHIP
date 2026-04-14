@@ -29,7 +29,8 @@ async function sendMothershipReply(chatId, replyToId, text, baseMeta = {}) {
   hooks.postResponse({
     userText: baseMeta._userText || '',
     assistantText: text,
-    sourceId: replyId
+    sourceId: replyId,
+    userId: ownerId
   }).catch(() => {});
   const CHUNK = 3900;
   for (let i = 0; i < text.length; i += CHUNK) {
@@ -308,6 +309,12 @@ function init() {
       const doc = msg.document;
       let sent;
       try {
+        const ownerId = auth.getSystemOwnerId();
+        if (!ownerId) {
+          console.warn('  ⚠ Telegram document: no system owner — run bootstrap first');
+          bot.sendMessage(chatId, '⚠ No system owner yet — run bootstrap first.', { reply_to_message_id: msg.message_id }).catch(() => {});
+          return;
+        }
         const filePath = await downloadToInbox(doc.file_id, doc.file_name || 'document.bin');
         sent = await bot.sendMessage(
           chatId,
@@ -332,15 +339,12 @@ function init() {
 
         if (!result) {
           // Unknown file type — store a stub and acknowledge
-          const ownerId = auth.getSystemOwnerId();
-          if (ownerId) {
-            db.addMessage(`[Unknown file] ${doc.file_name || filePath}`, 'telegram', 'unknown-file', {
-              ...baseMeta,
-              filepath: filePath,
-              filename: doc.file_name,
-              mime_type: doc.mime_type
-            }, ownerId);
-          }
+          db.addMessage(`[Unknown file] ${doc.file_name || filePath}`, 'telegram', 'unknown-file', {
+            ...baseMeta,
+            filepath: filePath,
+            filename: doc.file_name,
+            mime_type: doc.mime_type
+          }, ownerId);
           await bot.editMessageText(`⚠ Unknown file type — stored raw metadata.`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
           return;
         }
@@ -366,7 +370,7 @@ function init() {
 
         try {
           const sourceHint = `Yoel just uploaded a ${result.kind}${result.title ? ` called "${result.title}"` : ''}. Here is what was extracted:`;
-          const reply = await conversation.respond(extracted, { contextKind: result.kind, sourceHint });
+          const reply = await conversation.respond(extracted, { contextKind: result.kind, sourceHint, userId: ownerId });
           await sendMothershipReply(chatId, msg.message_id, reply, { ...baseMeta, _userText: extracted });
           await bot.deleteMessage(chatId, sent.message_id).catch(() => {});
         } catch (convErr) {
@@ -396,6 +400,12 @@ function init() {
 
       let sent;
       try {
+        const ownerId = auth.getSystemOwnerId();
+        if (!ownerId) {
+          console.warn('  ⚠ Telegram audio: no system owner — run bootstrap first');
+          bot.sendMessage(chatId, '⚠ No system owner yet — run bootstrap first.', { reply_to_message_id: msg.message_id }).catch(() => {});
+          return;
+        }
         const filePath = await downloadToInbox(audioObj.file_id, suggestedName);
         sent = await bot.sendMessage(chatId, `🎧 Received ${label} — transcribing…`, { reply_to_message_id: msg.message_id });
 
@@ -435,7 +445,7 @@ function init() {
 
         try {
           const sourceHint = `Yoel just sent a ${msg.voice ? 'voice note' : 'audio file'}. Transcript:`;
-          const reply = await conversation.respond(extracted, { contextKind: 'audio', sourceHint });
+          const reply = await conversation.respond(extracted, { contextKind: 'audio', sourceHint, userId: ownerId });
           await sendMothershipReply(chatId, msg.message_id, reply, { ...baseMeta, _userText: extracted });
           await bot.deleteMessage(chatId, sent.message_id).catch(() => {});
         } catch (convErr) {
@@ -473,7 +483,7 @@ function init() {
       if (!urls.length) {
         bot.sendChatAction(chatId, 'typing').catch(() => {});
         try {
-          const reply = await conversation.respond(msg.text, { contextKind: 'text' });
+          const reply = await conversation.respond(msg.text, { contextKind: 'text', userId: ownerId });
           await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from, _userText: msg.text });
         } catch (err) {
           console.error('  ⚠ Conversation failed:', err.message);
@@ -518,7 +528,7 @@ function init() {
 
       try {
         const sourceHint = `Yoel just sent ${urls.length === 1 ? 'a link' : `${urls.length} links`}. Here is the extracted content (title, transcript, vision read, summary):`;
-        const reply = await conversation.respond(extracted, { contextKind: 'link', sourceHint });
+        const reply = await conversation.respond(extracted, { contextKind: 'link', sourceHint, userId: ownerId });
         await sendMothershipReply(chatId, msg.message_id, reply, { telegram_from: from, links: urls, _userText: msg.text });
         bot.deleteMessage(chatId, sent.message_id).catch(() => {});
       } catch (err) {
@@ -627,8 +637,14 @@ function init() {
       bot.editMessageText('✔ Processed — thinking…', { chat_id: chatId, message_id: msgId }).catch(() => {});
 
       try {
+        const ownerId = auth.getSystemOwnerId();
+        if (!ownerId) {
+          console.warn('  ⚠ Telegram callback media: no system owner — run bootstrap first');
+          bot.editMessageText('⚠ No system owner yet — run bootstrap first.', { chat_id: chatId, message_id: msgId }).catch(() => {});
+          return;
+        }
         const sourceHint = `Yoel just sent ${entry.kind === 'video' ? 'a video' : 'an image'}. Here is what was extracted:`;
-        const reply = await conversation.respond(extracted, { contextKind: entry.kind, sourceHint });
+        const reply = await conversation.respond(extracted, { contextKind: entry.kind, sourceHint, userId: ownerId });
         await sendMothershipReply(chatId, entry.baseMeta.telegram_message_id, reply, { ...entry.baseMeta, _userText: extracted });
         bot.deleteMessage(chatId, msgId).catch(() => {});
       } catch (convErr) {
