@@ -133,7 +133,12 @@ function init() {
       }
 
       if (cmd === '/mirror') {
-        const rows = db.getMirrorEntries({ activeOnly: true, limit: 30 });
+        const ownerId = auth.getSystemOwnerId();
+        if (!ownerId) {
+          await bot.sendMessage(chatId, '⚠ No system owner yet — run bootstrap first.', { reply_to_message_id: msg.message_id }).catch(() => {});
+          return;
+        }
+        const rows = db.getMirrorEntries({ activeOnly: true, limit: 30, userId: ownerId });
         const byCat = {};
         for (const r of rows) (byCat[r.category] ||= []).push(r);
         const lines = ['🪞 *Quantum Mirror (top 30 active)*'];
