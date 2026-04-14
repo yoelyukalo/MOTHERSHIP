@@ -680,6 +680,53 @@ function resolveAction(commitmentId, resolvingActionId) {
   save();
 }
 
+// --- Reflections (Phase 5) ---
+
+function addReflection({ userId, windowStart, windowEnd, briefingMd,
+                         actionCount = 0, patternJson = {}, selfCritiqueJson = {} }) {
+  if (!userId) throw new Error('addReflection: userId required');
+  if (!windowStart) throw new Error('addReflection: windowStart required');
+  if (!windowEnd) throw new Error('addReflection: windowEnd required');
+  if (!briefingMd) throw new Error('addReflection: briefingMd required');
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO reflections (id, user_id, window_start, window_end, briefing_md,
+                              action_count, pattern_json, self_critique_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, userId, windowStart, windowEnd, briefingMd, actionCount,
+     JSON.stringify(patternJson), JSON.stringify(selfCritiqueJson)]
+  );
+  save();
+  return id;
+}
+
+function _rowToReflection(row) {
+  if (!row) return null;
+  row.pattern_json = JSON.parse(row.pattern_json || '{}');
+  row.self_critique_json = JSON.parse(row.self_critique_json || '{}');
+  return row;
+}
+
+function getLatestReflection({ userId }) {
+  if (!userId) throw new Error('getLatestReflection: userId required');
+  const stmt = db.prepare(
+    `SELECT * FROM reflections WHERE user_id = ? ORDER BY generated_at DESC LIMIT 1`
+  );
+  stmt.bind([userId]);
+  let row = null;
+  if (stmt.step()) row = stmt.getAsObject();
+  stmt.free();
+  return _rowToReflection(row);
+}
+
+function markReflectionDelivered(id, { telegram = false, obsidianPath = null } = {}) {
+  db.run(
+    `UPDATE reflections SET delivered_telegram = ?, delivered_obsidian = ? WHERE id = ?`,
+    [telegram ? 1 : 0, obsidianPath, id]
+  );
+  save();
+}
+
 // Test-only escape hatch — lets tests run raw SQL (e.g. to backdate updated_at)
 function _raw() { return db; }
 
@@ -690,5 +737,6 @@ module.exports = {
   addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence,
   addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
   addAction, getActions, getActionsByWindow, getPendingActions, updateActionStatus, resolveAction,
+  addReflection, getLatestReflection, markReflectionDelivered,
   _raw
 };
