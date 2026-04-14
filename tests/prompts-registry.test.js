@@ -92,12 +92,12 @@ test('seedFromHardcoded is idempotent', () => {
   assert.strictEqual(firstCount, secondCount);
 });
 
-test('seedFromHardcoded registers fallbacks for every seeded name', () => {
-  // Clear the in-memory cache so getPrompt goes through the fallback path if DB is empty.
-  // (The seed call above already put rows in the DB, so this test only proves the
-  // fallbacks Map was also populated — by checking that getPrompt succeeds for all names.)
-  registry._invalidateAll();
-  for (const name of [
+test('seedFromHardcoded registers fallbacks that survive DB row deletion', () => {
+  // To actually exercise the fallback path (not just the DB path), delete the
+  // active rows after seeding so getPrompt has to fall through to the
+  // fallbacks Map that seedFromHardcoded populated.
+  registry.seedFromHardcoded();
+  const names = [
     'system.conversation',
     'synthesis.mirror',
     'synthesis.wiki',
@@ -105,8 +105,18 @@ test('seedFromHardcoded registers fallbacks for every seeded name', () => {
     'health.gap_analysis',
     'extractor.actions',
     'reflection.daily'
-  ]) {
+  ];
+
+  // Wipe the DB rows for these names using the raw escape hatch.
+  const raw = db._raw();
+  for (const name of names) {
+    raw.run(`DELETE FROM prompt_versions WHERE name = ?`, [name]);
+  }
+  registry._invalidateAll();
+
+  // With no DB rows, getPrompt MUST return the registered fallback for each.
+  for (const name of names) {
     const body = registry.getPrompt(name);
-    assert.ok(body && body.length > 0, `getPrompt('${name}') returned empty`);
+    assert.ok(body && body.length > 0, `fallback for '${name}' not returned`);
   }
 });
