@@ -1217,6 +1217,94 @@
       letter-spacing: 0.12em;
     }
     .user-chip button:hover { color: var(--ice); }
+
+    /* ── ACTIONS TAB ── */
+    .actions-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .actions-toolbar select,
+    .actions-toolbar button {
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      color: var(--text);
+      padding: 7px 14px;
+      border-radius: var(--radius-pill);
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.2s ease, background 0.2s ease;
+      -webkit-appearance: none;
+      appearance: none;
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .actions-toolbar select:hover,
+    .actions-toolbar button:hover {
+      border-color: var(--hair-hi);
+      background: var(--glass-hi);
+      color: var(--text);
+    }
+    .actions-toolbar select option {
+      background: var(--bg-1);
+      color: var(--text);
+    }
+    .action-row {
+      display: flex;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-inner);
+      margin-bottom: 8px;
+      align-items: center;
+      font-family: 'Geist Mono', 'SF Mono', 'Consolas', monospace;
+      font-size: 12px;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .action-row:last-child { margin-bottom: 0; }
+    .action-row:hover { background: var(--glass-hi); border-color: var(--hair-hi); }
+    .action-row .action-kind {
+      color: var(--ice);
+      min-width: 150px;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+    }
+    .action-row .action-subject {
+      flex: 1;
+      color: var(--text);
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .action-row .action-status { color: var(--text-dim); font-size: 11px; min-width: 90px; }
+    .action-row .action-date { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .action-row .action-conf { color: var(--amber); font-size: 11px; }
+    .action-row.action-pending { border-color: rgba(233,200,128,0.32); background: rgba(233,200,128,0.035); }
+    .action-row.action-pending:hover { border-color: rgba(233,200,128,0.5); background: rgba(233,200,128,0.06); }
+    .action-row.action-resolved .action-status { color: var(--green); }
+    .action-row.action-rejected .action-status { color: var(--red); }
+    .action-row.action-active .action-status { color: var(--ice); }
+    .action-btn {
+      background: var(--glass-hi);
+      border: 1px solid var(--hair-hi);
+      color: var(--text);
+      border-radius: var(--radius-pill);
+      padding: 4px 12px;
+      cursor: pointer;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 12px;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+      line-height: 1.4;
+    }
+    .action-btn.confirm:hover { background: rgba(132,211,164,0.12); border-color: rgba(132,211,164,0.4); color: var(--green); }
+    .action-btn.reject:hover { background: rgba(232,122,125,0.12); border-color: rgba(232,122,125,0.4); color: var(--red); }
   </style>
 </head>
 <body>
@@ -1249,6 +1337,7 @@
       <button class="nav-tab active" data-view="overview">Overview</button>
       <button class="nav-tab" data-view="mirror">Quantum Mirror</button>
       <button class="nav-tab" data-view="messages">Messages</button>
+      <button class="nav-tab" data-view="actions">Actions</button>
       <button class="nav-tab dim" data-view="logs">System Log</button>
     </div>
     <div class="nav-status">
@@ -1346,6 +1435,57 @@
       </div>
       <div class="messages-list" id="all-messages">
         <div class="empty">No messages yet.</div>
+      </div>
+    </section>
+
+    <!-- ── ACTIONS ── -->
+    <section class="view" id="view-actions">
+      <div class="page-head">
+        <h1>Actions</h1>
+        <div class="page-sub">audit log · confirm queue</div>
+      </div>
+
+      <div class="actions-toolbar">
+        <select id="actions-kind-filter">
+          <option value="">All kinds</option>
+          <option value="commitment">Commitments</option>
+          <option value="win">Wins</option>
+          <option value="stumble">Stumbles</option>
+          <option value="state">States</option>
+          <option value="preference">Preferences</option>
+          <option value="mothership_reply">Mothership replies</option>
+          <option value="mothership_synthesis">Mothership synthesis</option>
+          <option value="mothership_categorize">Mothership categorize</option>
+          <option value="mothership_prompt_change">Prompt changes</option>
+        </select>
+        <select id="actions-status-filter">
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="pending_confirm">Pending confirm</option>
+          <option value="resolved">Resolved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <button id="actions-refresh-btn">Refresh</button>
+      </div>
+
+      <div class="mirror-panel" style="margin-bottom:24px;">
+        <div class="mirror-panel-head">
+          <h2>Pending Confirm</h2>
+          <span class="pill strong" id="actions-pending-count">0</span>
+        </div>
+        <div class="mirror-panel-body" id="actions-pending-list" style="padding:16px 20px;">
+          <div class="empty">Nothing pending.</div>
+        </div>
+      </div>
+
+      <div class="mirror-panel">
+        <div class="mirror-panel-head">
+          <h2>All Actions</h2>
+          <span class="pill strong" id="actions-all-count">0</span>
+        </div>
+        <div class="mirror-panel-body" id="actions-list" style="padding:16px 20px;">
+          <div class="empty">No actions yet.</div>
+        </div>
       </div>
     </section>
 
@@ -1460,6 +1600,14 @@
       }
       const logoutBtn = document.getElementById('logoutBtn');
       if (logoutBtn) logoutBtn.addEventListener('click', doLogout);
+
+      // Actions tab controls
+      const actionsRefresh = document.getElementById('actions-refresh-btn');
+      if (actionsRefresh) actionsRefresh.addEventListener('click', loadActions);
+      const actionsKind = document.getElementById('actions-kind-filter');
+      if (actionsKind) actionsKind.addEventListener('change', loadActions);
+      const actionsStatus = document.getElementById('actions-status-filter');
+      if (actionsStatus) actionsStatus.addEventListener('change', loadActions);
     });
 
     /* ── Tabs ── */
@@ -1472,6 +1620,7 @@
         if (tab.dataset.view === 'mirror') refreshMirror();
         if (tab.dataset.view === 'messages') refreshAllMessages();
         if (tab.dataset.view === 'logs') refreshAllLogs();
+        if (tab.dataset.view === 'actions') loadActions();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
@@ -1612,6 +1761,77 @@
         const res = await authFetch(`${API}/logs?limit=200`);
         renderLogs(await res.json(), 'all-logs');
       } catch (e) {}
+    }
+
+    /* ── Actions ── */
+    async function loadActions() {
+      const kind = document.getElementById('actions-kind-filter').value;
+      const status = document.getElementById('actions-status-filter').value;
+      const qs = new URLSearchParams();
+      if (kind) qs.set('kind', kind);
+      if (status) qs.set('status', status);
+      qs.set('limit', '200');
+
+      try {
+        const [listRes, pendingRes] = await Promise.all([
+          authFetch(`${API}/actions?${qs.toString()}`).then(r => r.json()),
+          authFetch(`${API}/actions/pending`).then(r => r.json())
+        ]);
+
+        const pendingEl = document.getElementById('actions-pending-list');
+        const listEl = document.getElementById('actions-list');
+        const pendingCount = document.getElementById('actions-pending-count');
+        const allCount = document.getElementById('actions-all-count');
+
+        const pending = pendingRes.actions || [];
+        const all = listRes.actions || [];
+
+        pendingCount.textContent = pending.length;
+        allCount.textContent = all.length;
+
+        pendingEl.innerHTML = pending.length
+          ? pending.map(renderPendingActionCard).join('')
+          : '<div class="empty">Nothing pending.</div>';
+
+        listEl.innerHTML = all.length
+          ? all.map(renderActionCard).join('')
+          : '<div class="empty">No actions yet.</div>';
+
+        pendingEl.querySelectorAll('[data-confirm]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            await authFetch(`${API}/actions/${btn.dataset.confirm}/confirm`, { method: 'POST' });
+            loadActions();
+          });
+        });
+        pendingEl.querySelectorAll('[data-reject]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            await authFetch(`${API}/actions/${btn.dataset.reject}/reject`, { method: 'POST' });
+            loadActions();
+          });
+        });
+      } catch (e) {}
+    }
+
+    function renderActionCard(a) {
+      const statusClass = 'action-' + escapeAttr(a.status || '');
+      return `<div class="action-row ${statusClass}">
+        <span class="action-kind">${escapeHtml(a.kind)}</span>
+        <span class="action-subject" title="${escapeAttr(a.subject)}">${escapeHtml(a.subject)}</span>
+        <span class="action-status">${escapeHtml(a.status)}</span>
+        <span class="action-date">${relativeTime(a.created_at)}</span>
+      </div>`;
+    }
+
+    function renderPendingActionCard(a) {
+      return `<div class="action-row action-pending">
+        <span class="action-kind">${escapeHtml(a.kind)}</span>
+        <span class="action-subject" title="${escapeAttr(a.subject)}">${escapeHtml(a.subject)}</span>
+        <span class="action-conf">conf ${(+(a.confidence) || 0).toFixed(2)}</span>
+        <button class="action-btn confirm" data-confirm="${escapeAttr(a.id)}">✓</button>
+        <button class="action-btn reject" data-reject="${escapeAttr(a.id)}">✗</button>
+      </div>`;
     }
 
     /* ── Mirror ── */
