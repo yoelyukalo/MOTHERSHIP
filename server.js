@@ -59,7 +59,17 @@ async function boot() {
   await db.init();
   console.log('  ✔ Database initialized');
 
-  // 1a. Initialize auth (Phase 6 #2) — must run before migrate-legacy-mirror
+  // 1a. Seed prompt registry (Phase 5). Idempotent: no-op after first boot.
+  try {
+    const prompts = require('./src/prompts/registry');
+    const seeded = prompts.seedFromHardcoded();
+    if (seeded > 0) console.log(`  ✔ Prompt registry seeded (${seeded} new entries)`);
+    else console.log('  ✔ Prompt registry up to date');
+  } catch (err) {
+    console.log(`  ⚠ Prompt registry seed error: ${err.message}`);
+  }
+
+  // 1b. Initialize auth (Phase 6 #2) — must run before migrate-legacy-mirror
   //     so the system owner is available for legacy data ownership assignment.
   try {
     await auth.init();
@@ -68,7 +78,7 @@ async function boot() {
     console.log(`  ⚠ Auth init error: ${err.message}`);
   }
 
-  // 1b. Migrate legacy mirror entries (no-op if already done). Requires a
+  // 1c. Migrate legacy mirror entries (no-op if already done). Requires a
   //     system owner; if no admin exists yet (pre-bootstrap) this is skipped.
   const systemOwnerId = auth.getSystemOwnerId();
   if (systemOwnerId) {
@@ -78,7 +88,7 @@ async function boot() {
     console.log('  ⚠ Legacy mirror migration skipped — no admin user yet (run scripts/create-admin.js first)');
   }
 
-  // 1c. Initialize satellites (Phase 6 #1)
+  // 1d. Initialize satellites (Phase 6 #1)
   try {
     await satellites.init();
     console.log('  ✔ Satellites loaded');
