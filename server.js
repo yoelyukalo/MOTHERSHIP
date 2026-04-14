@@ -17,6 +17,7 @@ const watcher = require('./src/watcher');
 const apiRoutes = require('./src/routes/api');
 const migrate = require('./src/migrate-legacy-mirror');
 const healthcheck = require('./src/health-check');
+const satellites = require('./src/satellites');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,14 @@ async function boot() {
   // 1a. Migrate legacy mirror entries (no-op if already done)
   const migratedCount = await migrate.runIfNeeded();
   if (migratedCount > 0) console.log(`  ✔ Migrated ${migratedCount} legacy mirror entries`);
+
+  // 1b. Initialize satellites (Phase 6 #1)
+  try {
+    await satellites.init();
+    console.log('  ✔ Satellites loaded');
+  } catch (err) {
+    console.log(`  ⚠ Satellite init error: ${err.message}`);
+  }
 
   // 2. Start Telegram bot (if configured)
   const telegramOk = telegram.init();
