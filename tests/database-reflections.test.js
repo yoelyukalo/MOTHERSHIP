@@ -47,6 +47,24 @@ test('addReflection requires userId', () => {
   }), /userId required/);
 });
 
+test('addReflection requires windowStart', () => {
+  assert.throws(() => db.addReflection({
+    userId: uid, windowEnd: 'y', briefingMd: 'z'
+  }), /windowStart required/);
+});
+
+test('addReflection requires windowEnd', () => {
+  assert.throws(() => db.addReflection({
+    userId: uid, windowStart: 'x', briefingMd: 'z'
+  }), /windowEnd required/);
+});
+
+test('addReflection requires briefingMd', () => {
+  assert.throws(() => db.addReflection({
+    userId: uid, windowStart: 'x', windowEnd: 'y'
+  }), /briefingMd required/);
+});
+
 test('getLatestReflection returns the most recent row', () => {
   const secondId = db.addReflection({
     userId: uid,
