@@ -44,3 +44,11 @@ test('auth schema — role_assignments has principal_type and nullable satellite
   assert.ok(byName.satellite_id, 'missing satellite_id');
   assert.strictEqual(byName.satellite_id[3], 0, 'satellite_id should be nullable (notnull=0)');
 });
+
+test('auth schema — messages/mirror_entries/wiki_entries have user_id column', () => {
+  const raw = db._raw();
+  for (const t of ['messages', 'mirror_entries', 'wiki_entries']) {
+    const cols = raw.exec(`PRAGMA table_info(${t})`)[0].values.map(r => r[1]);
+    assert.ok(cols.includes('user_id'), `${t} missing user_id column`);
+  }
+});

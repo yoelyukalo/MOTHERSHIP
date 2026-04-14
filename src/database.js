@@ -215,6 +215,20 @@ async function init() {
   db.run(`CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token_hash)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_invitations_expires ON invitations(expires_at)`);
 
+  // Per-user scoping (Phase 6 #2) — add user_id to three Mothership-core tables.
+  // sql.js ALTER TABLE doesn't support IF NOT EXISTS, so check via PRAGMA.
+  for (const t of ['messages', 'mirror_entries', 'wiki_entries']) {
+    const info = db.exec(`PRAGMA table_info(${t})`);
+    if (!info.length) continue;
+    const cols = info[0].values.map(r => r[1]);
+    if (!cols.includes('user_id')) {
+      db.run(`ALTER TABLE ${t} ADD COLUMN user_id TEXT`);
+    }
+  }
+  db.run(`CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_entries_user ON mirror_entries(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_entries_user ON wiki_entries(user_id)`);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS satellites (
       id TEXT PRIMARY KEY,
