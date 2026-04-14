@@ -727,6 +727,64 @@ function markReflectionDelivered(id, { telegram = false, obsidianPath = null } =
   save();
 }
 
+// --- Prompt Versions (Phase 5) ---
+
+function addPromptVersion({ name, version, body, isActive = 0, createdBy = 'manual', parentVersion = null }) {
+  if (!name) throw new Error('addPromptVersion: name required');
+  if (!body) throw new Error('addPromptVersion: body required');
+  if (typeof version !== 'number') throw new Error('addPromptVersion: version required (number)');
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO prompt_versions (id, name, version, body, is_active, created_by, parent_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, name, version, body, isActive ? 1 : 0, createdBy, parentVersion]
+  );
+  save();
+  return id;
+}
+
+function getActivePromptVersion(name) {
+  const stmt = db.prepare(
+    `SELECT * FROM prompt_versions WHERE name = ? AND is_active = 1 LIMIT 1`
+  );
+  stmt.bind([name]);
+  let row = null;
+  if (stmt.step()) row = stmt.getAsObject();
+  stmt.free();
+  return row;
+}
+
+function listPromptVersions(name) {
+  const stmt = db.prepare(
+    `SELECT * FROM prompt_versions WHERE name = ? ORDER BY version DESC`
+  );
+  stmt.bind([name]);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+
+function getMaxPromptVersion(name) {
+  const stmt = db.prepare(
+    `SELECT MAX(version) as max_version FROM prompt_versions WHERE name = ?`
+  );
+  stmt.bind([name]);
+  stmt.step();
+  const row = stmt.getAsObject();
+  stmt.free();
+  return row.max_version || 0;
+}
+
+function setActivePromptVersion(name, version) {
+  // Two-statement flip on a single table. sql.js does not expose
+  // multi-statement transactions cleanly, but both writes target the
+  // same table with specific WHERE clauses so this is safe in practice.
+  db.run(`UPDATE prompt_versions SET is_active = 0 WHERE name = ?`, [name]);
+  db.run(`UPDATE prompt_versions SET is_active = 1 WHERE name = ? AND version = ?`, [name, version]);
+  save();
+}
+
 // Test-only escape hatch — lets tests run raw SQL (e.g. to backdate updated_at)
 function _raw() { return db; }
 
@@ -738,5 +796,7 @@ module.exports = {
   addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
   addAction, getActions, getActionsByWindow, getPendingActions, updateActionStatus, resolveAction,
   addReflection, getLatestReflection, markReflectionDelivered,
+  addPromptVersion, getActivePromptVersion, listPromptVersions,
+  getMaxPromptVersion, setActivePromptVersion,
   _raw
 };
