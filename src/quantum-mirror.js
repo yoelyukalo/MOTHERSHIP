@@ -26,8 +26,8 @@ function getClient() {
   return client;
 }
 
-function getExistingCandidates() {
-  return db.getMirrorEntries({ activeOnly: true, limit: 200 })
+function getExistingCandidates(userId) {
+  return db.getMirrorEntries({ activeOnly: true, limit: 200, userId })
     .map(r => ({ id: r.id, category: r.category, content: r.content, confidence: r.confidence }));
 }
 
@@ -41,9 +41,10 @@ function parseJsonFromText(text) {
   }
 }
 
-async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCategory = null }) {
+async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCategory = null, userId }) {
+  if (!userId) throw new Error('synthesizeFromTurn: userId required');
   const turn = `USER: ${userText}\n\nMOTHERSHIP: ${assistantText}`;
-  const existing = getExistingCandidates();
+  const existing = getExistingCandidates(userId);
   const prompt = MIRROR_SYNTHESIS({ existing, turn });
 
   const c = getClient();
@@ -69,7 +70,8 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
         content: entry.content,
         confidence: entry.confidence ?? 0.6,
         source_type: 'conversation',
-        source_id: sourceId
+        source_id: sourceId,
+        userId
       });
       created++;
     } catch (err) {
@@ -80,14 +82,15 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   let superseded = 0;
   for (const s of parsed.supersede || []) {
     try {
-      const old = db.getMirrorEntries({ activeOnly: true, limit: 10000 }).find(r => r.id === s.old_id);
+      const old = db.getMirrorEntries({ activeOnly: true, limit: 10000, userId }).find(r => r.id === s.old_id);
       if (!old) continue;
       await ve.supersedeMirrorEntry(s.old_id, {
         category: old.category,
         content: s.new_content,
         confidence: s.new_confidence ?? old.confidence,
         source_type: 'conversation',
-        source_id: sourceId
+        source_id: sourceId,
+        userId
       });
       superseded++;
     } catch (err) {

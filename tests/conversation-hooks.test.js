@@ -11,6 +11,10 @@ const ve = require('../src/memory/vector-engine');
 const hooks = require('../src/conversation-hooks');
 const qm = require('../src/quantum-mirror');
 const syn = require('../src/synthesizer');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
+
+let testUserId;
 
 test('conversation-hooks — preResponse returns context block', async (t) => {
   await db.init();
@@ -19,12 +23,16 @@ test('conversation-hooks — preResponse returns context block', async (t) => {
     embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.5) }] }) }
   });
 
+  await authRoles.seedOnce(db);
+  testUserId = await users.createUser({ email: 't@x', password: 'p' });
+
   await ve.storeMirrorEntry({
     category: 'preferences', content: 'likes terse answers',
-    confidence: 0.8, source_type: 'conversation', source_id: 'x'
+    confidence: 0.8, source_type: 'conversation', source_id: 'x',
+    userId: testUserId
   });
 
-  const block = await hooks.preResponse('hi');
+  const block = await hooks.preResponse('hi', { userId: testUserId });
   assert.ok(block.includes('likes terse answers'));
 });
 
@@ -35,7 +43,7 @@ test('conversation-hooks — postResponse triggers mirror synthesis', async () =
       content: [{ type: 'text', text: JSON.stringify({ new_entries: [], supersede: [], contradictions: [] }) }]
     }; } }
   });
-  await hooks.postResponse({ userText: 'hello world this is a substantive message worth synthesizing', assistantText: 'hi back', sourceId: 't1' });
+  await hooks.postResponse({ userText: 'hello world this is a substantive message worth synthesizing', assistantText: 'hi back', sourceId: 't1', userId: testUserId });
   assert.ok(called);
 });
 
@@ -46,7 +54,7 @@ test('conversation-hooks — postIngestion triggers wiki synthesis', async () =>
       content: [{ type: 'text', text: JSON.stringify({ topics: [] }) }]
     }; } }
   });
-  await hooks.postIngestion({ content: 'long article text that is definitely above the minimum char threshold for synthesis', sourceId: 'msg-1' });
+  await hooks.postIngestion({ content: 'long article text that is definitely above the minimum char threshold for synthesis', sourceId: 'msg-1', userId: testUserId });
   assert.ok(called);
 });
 
@@ -57,7 +65,7 @@ test('conversation-hooks — postResponse no-ops on short turns', async () => {
       content: [{ type: 'text', text: '{}' }]
     }; } }
   });
-  await hooks.postResponse({ userText: 'hi', assistantText: 'hi', sourceId: 't2' });
+  await hooks.postResponse({ userText: 'hi', assistantText: 'hi', sourceId: 't2', userId: testUserId });
   assert.strictEqual(called, false);
 });
 
@@ -66,5 +74,5 @@ test('conversation-hooks — synthesis errors are caught, never thrown', async (
     messages: { create: async () => { throw new Error('simulated API failure'); } }
   });
   // Should not throw
-  await hooks.postResponse({ userText: 'this is a long enough message to trigger synthesis', assistantText: 'response', sourceId: 't3' });
+  await hooks.postResponse({ userText: 'this is a long enough message to trigger synthesis', assistantText: 'response', sourceId: 't3', userId: testUserId });
 });

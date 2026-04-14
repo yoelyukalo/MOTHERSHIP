@@ -9,15 +9,22 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 const db = require('../src/database');
 const ve = require('../src/memory/vector-engine');
 const qm = require('../src/quantum-mirror');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
 
 const fakeEmbClient = {
   embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.33) }] }) }
 };
 
+let testUserId;
+
 test('quantum-mirror — synthesizes new entries from a turn', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
   ve._setClient(fakeEmbClient);
+
+  await authRoles.seedOnce(db);
+  testUserId = await users.createUser({ email: 'qm@x', password: 'p' });
 
   const fakeAnthropic = {
     messages: {
@@ -40,10 +47,11 @@ test('quantum-mirror — synthesizes new entries from a turn', async (t) => {
   await qm.synthesizeFromTurn({
     userText: 'I want to build my next systems project in Rust',
     assistantText: 'Rust is a strong pick for that.',
-    sourceId: 'turn-1'
+    sourceId: 'turn-1',
+    userId: testUserId
   });
 
-  const rows = db.getMirrorEntries({ category: 'preferences' });
+  const rows = db.getMirrorEntries({ category: 'preferences', userId: testUserId });
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].content, 'Prefers Rust for systems work');
 });
@@ -62,7 +70,7 @@ test('quantum-mirror — handles empty synthesis without error', async () => {
   };
   qm._setClient(fakeAnthropic);
   // Should not throw on empty synthesis
-  const result = await qm.synthesizeFromTurn({ userText: 'hi', assistantText: 'hi', sourceId: 't2' });
+  const result = await qm.synthesizeFromTurn({ userText: 'hi', assistantText: 'hi', sourceId: 't2', userId: testUserId });
   assert.strictEqual(result.created, 0);
   assert.strictEqual(result.superseded, 0);
 });
@@ -74,7 +82,8 @@ test('quantum-mirror — supersede path replaces an existing entry', async () =>
     content: 'Likes verbose documentation',
     confidence: 0.7,
     source_type: 'conversation',
-    source_id: 'seed'
+    source_id: 'seed',
+    userId: testUserId
   });
 
   qm._setClient({
@@ -94,13 +103,14 @@ test('quantum-mirror — supersede path replaces an existing entry', async () =>
   const result = await qm.synthesizeFromTurn({
     userText: 'actually I prefer terse docs with concrete examples',
     assistantText: 'noted',
-    sourceId: 'turn-3'
+    sourceId: 'turn-3',
+    userId: testUserId
   });
 
   assert.strictEqual(result.superseded, 1);
 
   // The old row must be hidden (superseded_by is set) and a new active row must exist with the new content.
-  const active = db.getMirrorEntries({ category: 'preferences', activeOnly: true });
+  const active = db.getMirrorEntries({ category: 'preferences', activeOnly: true, userId: testUserId });
   const stillSeeded = active.find(r => r.id === seedId);
   assert.strictEqual(stillSeeded, undefined, 'old entry should no longer be active');
 

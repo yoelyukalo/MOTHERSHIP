@@ -51,11 +51,12 @@ Yoel is actively building Mothership (you). He sends content — articles, video
 - End with a concrete next step OR a sharp question, never both.`;
 }
 
-function buildHistory(excludeContent) {
+function buildHistory(excludeContent, userId) {
+  if (!userId) throw new Error('buildHistory: userId required');
   // Pull a wider net than HISTORY_LIMIT so we can interleave user + mothership.
-  const telegramRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'telegram' });
-  const dashboardRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'dashboard' });
-  const botRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'mothership' });
+  const telegramRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'telegram', userId });
+  const dashboardRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'dashboard', userId });
+  const botRows = db.getMessages({ limit: HISTORY_LIMIT, source: 'mothership', userId });
   const combined = [...telegramRows, ...dashboardRows, ...botRows]
     .filter(r => r.content && r.content.trim())
     .sort((a, b) => (a.created_at > b.created_at ? 1 : -1));
@@ -82,14 +83,16 @@ function buildHistory(excludeContent) {
  * @param {string} [opts.sourceHint] — extra framing to prepend to the user turn
  */
 async function respond(userInput, opts = {}) {
+  const { userId } = opts;
+  if (!userId) throw new Error('respond: userId required');
   const c = getClient();
   const staticPrompt = buildStaticSystemPrompt();
-  const liveContext = await hooks.preResponse(userInput);
+  const liveContext = await hooks.preResponse(userInput, { userId });
   const system = liveContext
     ? `${staticPrompt}\n\n# Live context (retrieved for this turn)\n${liveContext}`
     : staticPrompt;
 
-  const history = buildHistory(userInput);
+  const history = buildHistory(userInput, userId);
 
   const framedInput = opts.sourceHint
     ? `${opts.sourceHint}\n\n${userInput}`

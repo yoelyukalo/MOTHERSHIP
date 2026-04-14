@@ -19,11 +19,13 @@ const MIRROR_TOPK = parseInt(process.env.MIRROR_TOPK || '5', 10);
 const WIKI_TOPK = parseInt(process.env.WIKI_TOPK || '5', 10);
 const MIN_TURN_LENGTH = parseInt(process.env.SYNTHESIS_MIN_CHARS || '40', 10);
 
-async function preResponse(userText) {
+async function preResponse(userText, { userId } = {}) {
+  if (!userId) throw new Error('preResponse: userId required');
   try {
     return await retriever.buildContextBlock(userText, {
       mirrorTopK: MIRROR_TOPK,
-      wikiTopK: WIKI_TOPK
+      wikiTopK: WIKI_TOPK,
+      userId
     });
   } catch (err) {
     db.log('error', 'hooks.preResponse', err.message);
@@ -31,13 +33,15 @@ async function preResponse(userText) {
   }
 }
 
-async function postResponse({ userText, assistantText, sourceId, draftSlug = null }) {
+async function postResponse({ userText, assistantText, sourceId, draftSlug = null, userId }) {
+  if (!userId) throw new Error('postResponse: userId required');
   if (!userText || userText.length < MIN_TURN_LENGTH) return;
   try {
     await qm.synthesizeFromTurn({
       userText,
       assistantText,
       sourceId,
+      userId,
       forceCategory: draftSlug ? 'satellite-building' : null
     });
   } catch (err) {
@@ -45,7 +49,8 @@ async function postResponse({ userText, assistantText, sourceId, draftSlug = nul
   }
 }
 
-async function postIngestion({ content, sourceId }) {
+async function postIngestion({ content, sourceId, userId }) {
+  if (!userId) throw new Error('postIngestion: userId required');
   if (!content || content.length < MIN_TURN_LENGTH) return;
   try {
     await syn.synthesizeFromContent({ content, sourceId });
