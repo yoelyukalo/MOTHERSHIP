@@ -785,6 +785,71 @@ function setActivePromptVersion(name, version) {
   save();
 }
 
+// --- Prompt Proposals (Phase 5) ---
+
+function addPromptProposal({ promptName, baseVersion, proposedBody, rationale,
+                             replayResultsJson = null, replayError = null }) {
+  if (!promptName) throw new Error('addPromptProposal: promptName required');
+  if (!proposedBody) throw new Error('addPromptProposal: proposedBody required');
+  if (!rationale) throw new Error('addPromptProposal: rationale required');
+  const id = uuidv4();
+  db.run(
+    `INSERT INTO prompt_proposals
+       (id, prompt_name, base_version, proposed_body, rationale, replay_results_json, replay_error)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, promptName, baseVersion, proposedBody, rationale,
+     replayResultsJson === null ? null : JSON.stringify(replayResultsJson), replayError]
+  );
+  save();
+  return id;
+}
+
+function _parseProposalRow(row) {
+  if (!row) return null;
+  row.replay_results_json = row.replay_results_json ? JSON.parse(row.replay_results_json) : null;
+  return row;
+}
+
+function getPromptProposal(id) {
+  const stmt = db.prepare(`SELECT * FROM prompt_proposals WHERE id = ?`);
+  stmt.bind([id]);
+  let row = null;
+  if (stmt.step()) row = stmt.getAsObject();
+  stmt.free();
+  return _parseProposalRow(row);
+}
+
+function getPendingPromptProposals() {
+  const stmt = db.prepare(
+    `SELECT * FROM prompt_proposals WHERE status = 'pending' ORDER BY created_at DESC`
+  );
+  const rows = [];
+  while (stmt.step()) rows.push(_parseProposalRow(stmt.getAsObject()));
+  stmt.free();
+  return rows;
+}
+
+function updatePromptProposalStatus(id, newStatus) {
+  db.run(
+    `UPDATE prompt_proposals SET status = ?, resolved_at = datetime('now') WHERE id = ?`,
+    [newStatus, id]
+  );
+  save();
+}
+
+function countPromptProposals({ promptName = null, status = null } = {}) {
+  let q = 'SELECT COUNT(*) as n FROM prompt_proposals WHERE 1=1';
+  const p = [];
+  if (promptName) { q += ' AND prompt_name = ?'; p.push(promptName); }
+  if (status) { q += ' AND status = ?'; p.push(status); }
+  const stmt = db.prepare(q);
+  if (p.length) stmt.bind(p);
+  stmt.step();
+  const n = stmt.getAsObject().n;
+  stmt.free();
+  return n;
+}
+
 // Test-only escape hatch — lets tests run raw SQL (e.g. to backdate updated_at)
 function _raw() { return db; }
 
@@ -798,5 +863,7 @@ module.exports = {
   addReflection, getLatestReflection, markReflectionDelivered,
   addPromptVersion, getActivePromptVersion, listPromptVersions,
   getMaxPromptVersion, setActivePromptVersion,
+  addPromptProposal, getPromptProposal, getPendingPromptProposals,
+  updatePromptProposalStatus, countPromptProposals,
   _raw
 };
