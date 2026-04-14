@@ -67,6 +67,9 @@ test('processText — reads file and stores content', async (t) => {
 
   const rows = db.getMessages({ category: 'text-file', allUsers: true });
   assert.ok(rows.some(row => row.content.includes('Test Note')));
+
+  const actions = db.getActions({ userId: adminId, kind: 'mothership_categorize' });
+  assert.ok(actions.length >= 1, 'mothership_categorize action not logged');
 });
 
 test('processText — truncates oversized content in DB but returns full text', async (t) => {

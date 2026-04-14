@@ -9,6 +9,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const ve = require('./memory/vector-engine');
 const { WIKI_SYNTHESIS } = require('./memory/synthesis-prompts');
+const { logAction } = require('./action-logger');
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1500;
@@ -87,6 +88,16 @@ async function synthesizeFromContent({ content, sourceId, userId }) {
   }
 
   db.log('info', 'synthesizer', `wiki synthesis: +${created} new, ${merged} merged`);
+  try {
+    logAction({
+      kind: 'mothership_synthesis',
+      subject: 'wiki synthesis',
+      data: { prompt_version: 'synthesis.wiki' },
+      sourceType: 'hook',
+      sourceId,
+      userId
+    });
+  } catch {}
   return { created, merged };
 }
 

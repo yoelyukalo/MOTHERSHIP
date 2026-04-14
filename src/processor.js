@@ -12,6 +12,7 @@ const auth = require('./auth');
 const media = require('./media');
 const vision = require('./vision');
 const audio = require('./audio');
+const { logAction } = require('./action-logger');
 
 const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
 const VIDEO_EXTS = ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'];
@@ -42,6 +43,16 @@ async function processImage(filePath, { source, baseMeta = {}, userId } = {}) {
     vision: visionResult,
     links: visionResult.links || []
   }, resolvedUserId);
+  try {
+    logAction({
+      kind: 'mothership_categorize',
+      subject: 'categorized as image',
+      data: { detected_kind: 'image', filename: path.basename(filePath) },
+      sourceType: 'ingestion',
+      sourceId: messageId,
+      userId: resolvedUserId
+    });
+  } catch {}
   return { kind: 'image', mode: 'vision', vision: visionResult, messageId };
 }
 
@@ -99,13 +110,33 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {}, 
     links,
     partial_errors: errors.length ? errors.map(e => ({ stage: e.stage, message: e.err.message, status: e.err.status, code: e.err.cause?.code })) : undefined
   }, resolvedUserId);
-
+  try {
+    logAction({
+      kind: 'mothership_categorize',
+      subject: 'categorized as video',
+      data: { detected_kind: 'video', filename: path.basename(filePath) },
+      sourceType: 'ingestion',
+      sourceId: messageId,
+      userId: resolvedUserId
+    });
+  } catch {}
   return { kind: 'video', mode, vision: visionResult, transcript, errors: errors.map(e => e.stage), messageId };
 }
 
 async function processPdf(filePath, { source, baseMeta = {}, userId } = {}) {
   const pdf = require('./pdf');
   const r = await pdf.processPdfFile(filePath, { source, baseMeta, userId });
+  try {
+    const resolvedUserId = userId || auth.getSystemOwnerId();
+    logAction({
+      kind: 'mothership_categorize',
+      subject: 'categorized as pdf',
+      data: { detected_kind: 'pdf', filename: path.basename(filePath) },
+      sourceType: 'ingestion',
+      sourceId: r.messageId,
+      userId: resolvedUserId
+    });
+  } catch {}
   return {
     kind: 'pdf',
     title: r.title,
@@ -132,6 +163,16 @@ async function processAudio(filePath, { source, baseMeta = {}, userId } = {}) {
     byte_size: size,
     transcript
   }, resolvedUserId);
+  try {
+    logAction({
+      kind: 'mothership_categorize',
+      subject: 'categorized as audio',
+      data: { detected_kind: 'audio', filename: path.basename(filePath) },
+      sourceType: 'ingestion',
+      sourceId: messageId,
+      userId: resolvedUserId
+    });
+  } catch {}
   return { kind: 'audio', title, transcript, messageId, byteSize: size };
 }
 
@@ -151,6 +192,16 @@ async function processText(filePath, { source, baseMeta = {}, userId } = {}) {
     byte_size: size,
     text_truncated: truncated
   }, resolvedUserId);
+  try {
+    logAction({
+      kind: 'mothership_categorize',
+      subject: 'categorized as text',
+      data: { detected_kind: 'text', filename: path.basename(filePath) },
+      sourceType: 'ingestion',
+      sourceId: messageId,
+      userId: resolvedUserId
+    });
+  } catch {}
   return { kind: 'text', title, content, messageId, byteSize: size };
 }
 

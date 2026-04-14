@@ -54,6 +54,10 @@ test('quantum-mirror — synthesizes new entries from a turn', async (t) => {
   const rows = db.getMirrorEntries({ category: 'preferences', userId: testUserId });
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].content, 'Prefers Rust for systems work');
+
+  const actions = db.getActions({ userId: testUserId, kind: 'mothership_synthesis' });
+  assert.ok(actions.length >= 1, 'mothership_synthesis action not logged');
+  assert.strictEqual(actions[0].data.prompt_version, 'synthesis.mirror');
 });
 
 test('quantum-mirror — handles empty synthesis without error', async () => {

@@ -46,6 +46,9 @@ test('synthesizer — creates new wiki topic from content', async (t) => {
   const rows = db.getWikiEntries({ topic: 'RAG architectures', userId: testUserId });
   assert.strictEqual(rows.length, 1);
   assert.deepStrictEqual(rows[0].source_ids, ['msg-1']);
+
+  const actions = db.getActions({ userId: testUserId, kind: 'mothership_synthesis' });
+  assert.ok(actions.some(a => a.data.prompt_version === 'synthesis.wiki'));
 });
 
 test('synthesizer — merges into existing topic', async () => {

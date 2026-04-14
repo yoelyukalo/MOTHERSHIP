@@ -14,6 +14,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const hooks = require('./conversation-hooks');
 const prompts = require('./prompts/registry');
+const { logAction } = require('./action-logger');
 
 // Register the canonical fallback at module load. The registry keeps the
 // authoritative copy; this registration ensures getPrompt returns a sensible
@@ -95,6 +96,21 @@ async function respond(userInput, opts = {}) {
 
   const text = response.content.find(b => b.type === 'text')?.text?.trim() || '';
   logUsage(opts.contextKind || 'text', response.usage);
+  try {
+    logAction({
+      kind: 'mothership_reply',
+      subject: `reply to ${opts.contextKind || 'text'} turn`,
+      data: {
+        prompt_version: 'system.conversation',
+        tokens_in: response.usage?.input_tokens || 0,
+        tokens_out: response.usage?.output_tokens || 0,
+        context_kind: opts.contextKind || 'text'
+      },
+      sourceType: 'conversation',
+      sourceId: null,
+      userId
+    });
+  } catch {}
   return text;
 }
 

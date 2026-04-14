@@ -10,6 +10,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const ve = require('./memory/vector-engine');
 const { MIRROR_SYNTHESIS } = require('./memory/synthesis-prompts');
+const { logAction } = require('./action-logger');
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1200;
@@ -99,6 +100,14 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   }
 
   db.log('info', 'quantum-mirror', `synthesis: +${created} new, ${superseded} superseded`);
+  logAction({
+    kind: 'mothership_synthesis',
+    subject: `mirror synthesis: +${created} new, ${superseded} superseded`,
+    data: { created, superseded, prompt_version: 'synthesis.mirror' },
+    sourceType: 'hook',
+    sourceId,
+    userId
+  });
   return { created, superseded };
 }
 
