@@ -122,3 +122,71 @@ test('quantum-mirror — supersede path replaces an existing entry', async () =>
   assert.ok(newRow, 'new entry should exist in active set');
   assert.ok(Math.abs(newRow.confidence - 0.9) < 1e-6);
 });
+
+test('storeFromReflection writes mirror entries via vector-engine with source_type=reflection', async () => {
+  // ve already has a mocked client from earlier tests; reuse it
+  const qm = require('../src/quantum-mirror');
+  const out = await qm.storeFromReflection({
+    proposals: [
+      { category: 'patterns', content: 'energy dips on Wednesdays', confidence: 0.7 },
+      { category: 'goals', content: 'wants to ship phase 5 by May', confidence: 0.8 }
+    ],
+    userId: testUserId,
+    reflectionId: 'refl-test-1'
+  });
+  assert.strictEqual(out.stored, 2);
+
+  const entries = db.getMirrorEntries({ userId: testUserId });
+  const reflectionSourced = entries.filter(e => e.source_type === 'reflection');
+  assert.ok(reflectionSourced.some(e => e.content === 'energy dips on Wednesdays'));
+  assert.ok(reflectionSourced.some(e => e.content === 'wants to ship phase 5 by May'));
+  // source_id must point back to the reflection id
+  assert.ok(reflectionSourced.every(e => e.source_id === 'refl-test-1'));
+});
+
+test('storeFromReflection requires userId', async () => {
+  const qm = require('../src/quantum-mirror');
+  await assert.rejects(() => qm.storeFromReflection({
+    proposals: [],
+    reflectionId: 'x'
+  }), /userId required/);
+});
+
+test('storeFromReflection handles empty proposals list', async () => {
+  const qm = require('../src/quantum-mirror');
+  const out = await qm.storeFromReflection({
+    proposals: [],
+    userId: testUserId,
+    reflectionId: 'empty'
+  });
+  assert.strictEqual(out.stored, 0);
+});
+
+test('storeFromReflection continues past individual write failures', async () => {
+  // Use an embeddings client that throws on specific input, succeeds otherwise
+  ve._setClient({
+    embeddings: {
+      create: async ({ input }) => {
+        if (typeof input === 'string' && input.includes('POISON')) {
+          throw new Error('simulated embed failure');
+        }
+        return { data: [{ embedding: new Array(3).fill(0.5) }] };
+      }
+    }
+  });
+
+  const qm = require('../src/quantum-mirror');
+  const out = await qm.storeFromReflection({
+    proposals: [
+      { category: 'patterns', content: 'POISON entry that should fail', confidence: 0.5 },
+      { category: 'goals', content: 'good entry that should succeed', confidence: 0.6 }
+    ],
+    userId: testUserId,
+    reflectionId: 'partial-failure'
+  });
+  assert.strictEqual(out.stored, 1);
+
+  const entries = db.getMirrorEntries({ userId: testUserId });
+  assert.ok(entries.some(e => e.content === 'good entry that should succeed'));
+  assert.ok(!entries.some(e => e.content === 'POISON entry that should fail'));
+});

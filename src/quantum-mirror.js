@@ -113,4 +113,26 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   return { created, superseded };
 }
 
-module.exports = { synthesizeFromTurn, _setClient };
+async function storeFromReflection({ proposals = [], userId, reflectionId }) {
+  if (!userId) throw new Error('storeFromReflection: userId required');
+  let stored = 0;
+  for (const p of proposals) {
+    if (!p || !p.category || !p.content) continue;
+    try {
+      await ve.storeMirrorEntry({
+        category: p.category,
+        content: p.content,
+        confidence: p.confidence ?? 0.6,
+        source_type: 'reflection',
+        source_id: reflectionId,
+        userId
+      });
+      stored++;
+    } catch (err) {
+      try { db.log('error', 'quantum-mirror', `storeFromReflection failed: ${err.message}`); } catch {}
+    }
+  }
+  return { stored };
+}
+
+module.exports = { synthesizeFromTurn, storeFromReflection, _setClient };
