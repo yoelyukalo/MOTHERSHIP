@@ -785,6 +785,14 @@ function setActivePromptVersion(name, version) {
   save();
 }
 
+function getActivePromptVersions() {
+  const stmt = db.prepare(`SELECT * FROM prompt_versions WHERE is_active = 1 ORDER BY name`);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+
 // --- Prompt Proposals (Phase 5) ---
 
 function addPromptProposal({ promptName, baseVersion, proposedBody, rationale,
@@ -861,7 +869,7 @@ module.exports = {
   addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
   addAction, getActions, getActionsByWindow, getPendingActions, updateActionStatus, resolveAction,
   addReflection, getLatestReflection, markReflectionDelivered,
-  addPromptVersion, getActivePromptVersion, listPromptVersions,
+  addPromptVersion, getActivePromptVersion, getActivePromptVersions, listPromptVersions,
   getMaxPromptVersion, setActivePromptVersion,
   addPromptProposal, getPromptProposal, getPendingPromptProposals,
   updatePromptProposalStatus, countPromptProposals,

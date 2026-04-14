@@ -24,7 +24,14 @@ function setFallback(name, body) {
 
 function getPrompt(name) {
   if (cache.has(name)) return cache.get(name);
-  const row = db.getActivePromptVersion(name);
+  let row = null;
+  try {
+    row = db.getActivePromptVersion(name);
+  } catch {
+    // DB unavailable (e.g. not initialized, table missing). Fall through
+    // to the registered fallback below — the whole point of fallbacks
+    // is to keep load-bearing prompts reachable when the DB is degraded.
+  }
   if (row && row.body) {
     cache.set(name, row.body);
     return row.body;
@@ -40,12 +47,7 @@ function listVersions(name) {
 }
 
 function listActive() {
-  const raw = db._raw();
-  const stmt = raw.prepare(`SELECT * FROM prompt_versions WHERE is_active = 1 ORDER BY name`);
-  const rows = [];
-  while (stmt.step()) rows.push(stmt.getAsObject());
-  stmt.free();
-  return rows;
+  return db.getActivePromptVersions();
 }
 
 function createVersion(name, body, { createdBy = 'manual', parentVersion = null, activate = false } = {}) {
