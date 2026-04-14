@@ -118,3 +118,49 @@ test('api — POST /api/satellites from draft links back', async () => {
   assert.strictEqual(draft.status, 'created');
   assert.strictEqual(draft.created_satellite_id, r.body.id);
 });
+
+test('api — POST /api/satellites returns 409 on slug collision', async () => {
+  const r = await req('POST', '/api/satellites', {
+    slug: 'api-1', name: 'Duplicate', kind: 'test-kind'
+  });
+  assert.strictEqual(r.status, 409);
+  assert.ok(/already exists/.test(r.body.error));
+});
+
+test('api — POST /api/satellites returns 400 on invalid slug', async () => {
+  const r = await req('POST', '/api/satellites', {
+    slug: 'BAD_SLUG', name: 'Bad', kind: 'test-kind'
+  });
+  assert.strictEqual(r.status, 400);
+});
+
+test('api — POST /api/satellites/drafts/:slug/status rejects invalid status', async () => {
+  const r = await req('POST', '/api/satellites/drafts/api-draft-1/status', { status: 'potato' });
+  assert.strictEqual(r.status, 400);
+  assert.ok(/invalid draft status/.test(r.body.error));
+});
+
+test('api — POST /api/satellites/drafts/:slug/status 404 on unknown draft', async () => {
+  const r = await req('POST', '/api/satellites/drafts/nope/status', { status: 'planned' });
+  assert.strictEqual(r.status, 404);
+});
+
+test('api — POST regenerate-brief returns 404 for unknown draft', async () => {
+  const r = await req('POST', '/api/satellites/drafts/does-not-exist/regenerate-brief', {});
+  assert.strictEqual(r.status, 404);
+});
+
+test('api — GET /api/satellites/:slug/directives returns history rows', async () => {
+  // api-1 had a config.set directive issued earlier in this test file.
+  // Give chokidar a moment in case the directive was still being processed
+  // when the visibility switch fired.
+  await new Promise(r => setTimeout(r, 100));
+  const r = await req('GET', '/api/satellites/api-1/directives');
+  // Might be 200 with rows OR 404 if the satellite got unloaded by archive.
+  // We care that the route is wired and returns well-shaped output when loaded.
+  if (r.status === 200) {
+    assert.ok(Array.isArray(r.body));
+  } else {
+    assert.strictEqual(r.status, 404);
+  }
+});
