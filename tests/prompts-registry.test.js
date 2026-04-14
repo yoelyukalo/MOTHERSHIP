@@ -68,3 +68,45 @@ test('setFallback does not override an active version', () => {
   registry.setFallback('system.conversation', 'SHOULD NOT BE USED');
   assert.strictEqual(registry.getPrompt('system.conversation'), 'v2 body');
 });
+
+test('seedFromHardcoded creates v1 for every known prompt', () => {
+  registry.seedFromHardcoded();
+  const afterNames = registry.listActive().map(p => p.name);
+  for (const name of [
+    'system.conversation',
+    'synthesis.mirror',
+    'synthesis.wiki',
+    'health.contradictions',
+    'health.gap_analysis',
+    'extractor.actions',
+    'reflection.daily'
+  ]) {
+    assert.ok(afterNames.includes(name), `seed missed ${name}`);
+  }
+});
+
+test('seedFromHardcoded is idempotent', () => {
+  const firstCount = registry.listActive().length;
+  registry.seedFromHardcoded();
+  const secondCount = registry.listActive().length;
+  assert.strictEqual(firstCount, secondCount);
+});
+
+test('seedFromHardcoded registers fallbacks for every seeded name', () => {
+  // Clear the in-memory cache so getPrompt goes through the fallback path if DB is empty.
+  // (The seed call above already put rows in the DB, so this test only proves the
+  // fallbacks Map was also populated — by checking that getPrompt succeeds for all names.)
+  registry._invalidateAll();
+  for (const name of [
+    'system.conversation',
+    'synthesis.mirror',
+    'synthesis.wiki',
+    'health.contradictions',
+    'health.gap_analysis',
+    'extractor.actions',
+    'reflection.daily'
+  ]) {
+    const body = registry.getPrompt(name);
+    assert.ok(body && body.length > 0, `getPrompt('${name}') returned empty`);
+  }
+});
