@@ -15,9 +15,12 @@ const db = require('./src/database');
 const telegram = require('./src/telegram');
 const watcher = require('./src/watcher');
 const apiRoutes = require('./src/routes/api');
+const authRoutes = require('./src/routes/auth');
+const userMgmtRoutes = require('./src/routes/users');
 const migrate = require('./src/migrate-legacy-mirror');
 const healthcheck = require('./src/health-check');
 const satellites = require('./src/satellites');
+const auth = require('./src/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +31,8 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // API routes
+app.use('/api/auth', authRoutes);
+app.use('/api', userMgmtRoutes);
 app.use('/api', apiRoutes);
 
 // Dashboard — serve the UI
@@ -54,11 +59,26 @@ async function boot() {
   await db.init();
   console.log('  ✔ Database initialized');
 
-  // 1a. Migrate legacy mirror entries (no-op if already done)
-  const migratedCount = await migrate.runIfNeeded();
-  if (migratedCount > 0) console.log(`  ✔ Migrated ${migratedCount} legacy mirror entries`);
+  // 1a. Initialize auth (Phase 6 #2) — must run before migrate-legacy-mirror
+  //     so the system owner is available for legacy data ownership assignment.
+  try {
+    await auth.init();
+    console.log('  ✔ Auth initialized');
+  } catch (err) {
+    console.log(`  ⚠ Auth init error: ${err.message}`);
+  }
 
-  // 1b. Initialize satellites (Phase 6 #1)
+  // 1b. Migrate legacy mirror entries (no-op if already done). Requires a
+  //     system owner; if no admin exists yet (pre-bootstrap) this is skipped.
+  const systemOwnerId = auth.getSystemOwnerId();
+  if (systemOwnerId) {
+    const migratedCount = await migrate.runIfNeeded({ userId: systemOwnerId });
+    if (migratedCount > 0) console.log(`  ✔ Migrated ${migratedCount} legacy mirror entries`);
+  } else {
+    console.log('  ⚠ Legacy mirror migration skipped — no admin user yet (run scripts/create-admin.js first)');
+  }
+
+  // 1c. Initialize satellites (Phase 6 #1)
   try {
     await satellites.init();
     console.log('  ✔ Satellites loaded');
