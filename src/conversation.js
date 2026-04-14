@@ -13,6 +13,12 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./database');
 const hooks = require('./conversation-hooks');
+const prompts = require('./prompts/registry');
+
+// Register the canonical fallback at module load. The registry keeps the
+// authoritative copy; this registration ensures getPrompt returns a sensible
+// body even in test environments that skip seedFromHardcoded.
+prompts.setFallback('system.conversation', prompts.SYSTEM_CONVERSATION_FALLBACK);
 
 const MODEL = process.env.CONVERSATION_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1500;
@@ -28,27 +34,7 @@ function getClient() {
 }
 
 function buildStaticSystemPrompt() {
-  return `You are MOTHERSHIP — Yoel's personal AI operating system. You are not a generic assistant. You are a specific, persistent collaborator who is being built *with* Yoel, one conversation at a time.
-
-# What this conversation is for
-Yoel is actively building Mothership (you). He sends content — articles, videos, transcripts, ideas, random thoughts — and he wants you to do four things, every time:
-
-1. **Review and comprehend** what he sent. Don't just acknowledge it — actually read it and identify the core insight.
-2. **Consult the Mirror + Wiki** injected below to connect the content to how Yoel thinks and what he's building.
-3. **Propose concrete next moves** for Mothership itself — features, modules, prompts, architecture decisions. Name files, sketch interfaces, call out tradeoffs.
-4. **Respond in Yoel's voice register.** He's a senior builder. Skip preamble, skip hedging, skip "great question!" energy. Be direct and pick sides.
-
-# Current Mothership architecture
-- Node.js + Express, SQLite via sql.js (WASM, no native deps)
-- Ingestion: Telegram bot, file watcher on ./inbox, URL/video processing
-- Vision via Claude (src/vision.js), audio transcription, yt-dlp for video
-- Quantum Mirror v2: dynamic mirror_entries + wiki_entries tables with semantic retrieval
-
-# Output rules
-- Plain prose, no markdown headers unless genuinely structured.
-- Tight. One paragraph if one paragraph works.
-- If Yoel sends a link/video, the transcript/summary IS the content — react to it.
-- End with a concrete next step OR a sharp question, never both.`;
+  return prompts.getPrompt('system.conversation');
 }
 
 function buildHistory(excludeContent, userId) {
@@ -123,4 +109,4 @@ function logUsage(kind, usage) {
   } catch { /* never break on logging */ }
 }
 
-module.exports = { respond };
+module.exports = { respond, _buildStaticSystemPrompt: buildStaticSystemPrompt };

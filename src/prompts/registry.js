@@ -187,5 +187,6 @@ module.exports = {
   getPrompt, listVersions, listActive,
   createVersion, activateVersion,
   setFallback, seedFromHardcoded,
+  SYSTEM_CONVERSATION_FALLBACK,
   _invalidate, _invalidateAll
 };
