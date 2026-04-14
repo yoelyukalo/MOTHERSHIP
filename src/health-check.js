@@ -16,6 +16,15 @@ const path = require('path');
 const db = require('./database');
 const auth = require('./auth');
 const { HEALTH_CONTRADICTIONS, GAP_ANALYSIS } = require('./memory/synthesis-prompts');
+const prompts = require('./prompts/registry');
+
+// Register the canonical fallbacks at module load. seedFromHardcoded covers
+// the production path (boot sequence); this duplicate registration keeps
+// health-check self-sufficient in test environments that skip seeding.
+// The stored value is JS source code (via .toString()) and is only used by
+// the reflection agent's self-critique diffing — never invoked at runtime.
+prompts.setFallback('health.contradictions', HEALTH_CONTRADICTIONS.toString());
+prompts.setFallback('health.gap_analysis', GAP_ANALYSIS.toString());
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
 const DECAY_AFTER_DAYS = parseInt(process.env.DECAY_AFTER_DAYS || '30', 10);
