@@ -87,3 +87,13 @@ test('directives — hot-added directive is processed by chokidar', async () => 
   const res = entry.db.exec("SELECT value FROM satellite_meta WHERE key = 'greeting'");
   assert.strictEqual(JSON.parse(res[0].values[0][0]), 'hi');
 });
+
+test('directives — issue rejects kind names with path separators or bad chars', () => {
+  for (const badKind of ['config.set/../../applied', '../evil', 'has space', 'UPPER', '.leading-dot', '']) {
+    assert.throws(
+      () => directives.issue('d-1', { kind: badKind, payload: {}, issuedBy: 'test' }),
+      /invalid directive kind/,
+      `should reject: ${JSON.stringify(badKind)}`
+    );
+  }
+});

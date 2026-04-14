@@ -120,7 +120,6 @@ async function _doRegister(slug) {
     kindModule,
     config,
     logger,
-    dbFile: paths.dbFile,
     flush: () => flushDb(rawDb, paths.dbFile)
   });
 

@@ -30,7 +30,16 @@ function fsSafeTs() {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+// Directive kind names are interpolated into filenames and looked up as
+// object keys on kindModule.directiveHandlers. Restrict the charset so a
+// malicious `kind` like 'config.set/../../applied' cannot escape the
+// pending/ directory via path.join.
+const KIND_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+
 function issue(slug, { kind, payload, issuedBy = 'mothership' }) {
+  if (!kind || typeof kind !== 'string' || !KIND_RE.test(kind)) {
+    throw new Error(`invalid directive kind: ${kind}`);
+  }
   const id = uuidv4();
   const body = {
     id,
@@ -77,7 +86,18 @@ function moveToRejected(filePath, slug, errorMsg, body, rawDb, flush) {
   try { writeHistory(rawDb, body, 'rejected', errorMsg); flush(); } catch (_) {}
   fs.mkdirSync(rejectedDir(slug), { recursive: true });
   const target = path.join(rejectedDir(slug), path.basename(filePath));
-  try { fs.renameSync(filePath, target); } catch (_) {}
+  try {
+    fs.renameSync(filePath, target);
+  } catch (renameErr) {
+    // Log the rename failure explicitly — a silent swallow leaves the file
+    // stuck in pending/ where the next startup sweep will retry it, but the
+    // operator has no signal that it happened.
+    db.log(
+      'warn',
+      `satellites.directives:${slug}`,
+      `failed to move ${path.basename(filePath)} to rejected/: ${renameErr.message} — file remains in pending/`
+    );
+  }
   try { fs.writeFileSync(target + '_error.txt', errorMsg); } catch (_) {}
   db.log('warn', `satellites.directives:${slug}`, `rejected ${body.kind || 'unknown'}: ${errorMsg}`);
 }
@@ -118,9 +138,17 @@ async function start(slug, { rawDb, kindModule, config, logger, flush }) {
     catch (err) { db.log('error', `satellites.directives:${slug}`, err.message); }
   });
 
+  // Bounded wait for chokidar 'ready'. A watcher that never emits ready
+  // (certain NTFS permission issues) would otherwise hang loader.register()
+  // and, transitively, the entire Mothership boot sequence.
+  const READY_TIMEOUT_MS = 10_000;
   await new Promise((resolve, reject) => {
-    watcher.once('ready', resolve);
-    watcher.once('error', reject);
+    const t = setTimeout(
+      () => reject(new Error(`chokidar ready timed out after ${READY_TIMEOUT_MS}ms for ${slug}`)),
+      READY_TIMEOUT_MS
+    );
+    watcher.once('ready', () => { clearTimeout(t); resolve(); });
+    watcher.once('error', (e) => { clearTimeout(t); reject(e); });
   });
 
   return async () => { await watcher.close(); };
