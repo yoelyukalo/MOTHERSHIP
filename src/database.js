@@ -89,6 +89,132 @@ async function init() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_topic ON wiki_entries(topic)`);
 
+  // --- Auth (Phase 6 #2) ---
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      auth_method TEXT NOT NULL DEFAULT 'password',
+      password_hash TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      disabled_at TEXT,
+      notes TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_users_disabled ON users(disabled_at)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      last_seen_at TEXT DEFAULT (datetime('now')),
+      ip TEXT,
+      user_agent TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      scope_json TEXT,
+      last_used_at TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      disabled_at TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(token_hash)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS groups (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS group_memberships (
+      user_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      added_at TEXT DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, group_id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_group_memberships_user ON group_memberships(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_group_memberships_group ON group_memberships(group_id)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS roles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL,
+      description TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_roles_kind ON roles(kind)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS permissions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      description TEXT
+    )
+  `);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role_id TEXT NOT NULL,
+      permission_id TEXT NOT NULL,
+      PRIMARY KEY (role_id, permission_id)
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_role_permissions_role ON role_permissions(role_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_role_permissions_perm ON role_permissions(permission_id)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS role_assignments (
+      id TEXT PRIMARY KEY,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role_id TEXT NOT NULL,
+      satellite_id TEXT,
+      granted_by TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_role_assignments_principal ON role_assignments(principal_type, principal_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_role_assignments_role ON role_assignments(role_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_role_assignments_satellite ON role_assignments(satellite_id)`);
+
+  db.run(`
+    CREATE TABLE IF NOT EXISTS invitations (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      email TEXT,
+      invited_by TEXT NOT NULL,
+      role_grants_json TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      claimed_at TEXT,
+      claimed_by_user_id TEXT
+    )
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_invitations_token ON invitations(token_hash)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_invitations_expires ON invitations(expires_at)`);
+
   db.run(`
     CREATE TABLE IF NOT EXISTS satellites (
       id TEXT PRIMARY KEY,
