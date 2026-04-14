@@ -1,11 +1,11 @@
 /**
  * MOTHERSHIP — Satellite Registry
  *
- * Owns the `satellites` table. Slug validation, row CRUD, lifecycle
- * (archive/unarchive/transfer/visibility) in later tasks. Per-instance
- * folder and DB bootstrap land in Task 6. Sovereignty enforcement lives
- * in sovereignty.js (Task 5); this module only writes to the Mothership
- * core DB, never to satellite-owned DBs.
+ * Owns the `satellites` table. Slug validation, row CRUD, per-instance
+ * folder and DB bootstrap (createInstance), and lifecycle functions
+ * (archive/unarchive/transfer/setVisibility). Sovereignty enforcement
+ * lives in sovereignty.js; this module only writes to the Mothership core
+ * DB, never to satellite-owned DBs.
  */
 
 const fs = require('fs');
@@ -262,19 +262,31 @@ async function createInstance({
 // that would occur if loader.js (which requires this module at the top)
 // tried to require this one at the top too.
 
+const VALID_VISIBILITIES = ['full', 'limited', 'none'];
+
 async function archive(slug) {
   const loader = require('./loader');
   updateStatus(slug, 'archived');
-  await loader.unregister(slug);
+  // Pass runOnArchive so the loader invokes the kind's onArchive hook
+  // with the raw writable handle before tearing the satellite down.
+  await loader.unregister(slug, { runOnArchive: true });
 }
 
 async function unarchive(slug) {
   const loader = require('./loader');
+  const row = getBySlug(slug);
+  if (!row) throw new Error(`no such satellite: ${slug}`);
+  if (row.status !== 'archived') {
+    throw new Error(`cannot unarchive satellite in status '${row.status}': ${slug}`);
+  }
   updateStatus(slug, 'active');
   await loader.register(slug);
 }
 
 async function transfer(slug, { visibility, owner } = {}) {
+  if (visibility && !VALID_VISIBILITIES.includes(visibility)) {
+    throw new Error(`invalid visibility: ${visibility}`);
+  }
   const loader = require('./loader');
   const raw = db._raw();
   const patches = ["status = 'transferred'", "transferred_at = datetime('now')"];
@@ -288,7 +300,7 @@ async function transfer(slug, { visibility, owner } = {}) {
 }
 
 async function setVisibility(slug, visibility) {
-  if (!['full', 'limited', 'none'].includes(visibility)) {
+  if (!VALID_VISIBILITIES.includes(visibility)) {
     throw new Error(`invalid visibility: ${visibility}`);
   }
   const loader = require('./loader');

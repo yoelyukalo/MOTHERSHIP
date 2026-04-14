@@ -136,9 +136,26 @@ async function _doRegister(slug) {
   return entry;
 }
 
-async function unregister(slug) {
+async function unregister(slug, { runOnArchive = false } = {}) {
   const priv = privateMap.get(slug);
   if (priv) {
+    // Run the kind's onArchive hook only when the caller is actually
+    // archiving the satellite (registry.archive sets runOnArchive=true).
+    // Shutdown, transfer, and setVisibility re-wraps all pass through
+    // unregister without triggering onArchive — the hook semantics are
+    // "this satellite was archived", not "Mothership is unloading it".
+    if (runOnArchive && priv.kindModule && priv.kindModule.onArchive) {
+      try {
+        await priv.kindModule.onArchive({
+          db: priv.rawDb,
+          config: priv.config,
+          logger: registry.consoleLogger(slug)
+        });
+        flushDb(priv.rawDb, registry.instancePaths(slug).dbFile);
+      } catch (err) {
+        db.log('warn', 'satellites.loader', `onArchive failed for ${slug}: ${err.message}`);
+      }
+    }
     try { if (priv.directivesStop) await priv.directivesStop(); } catch (_) {}
     try { priv.rawDb.close(); } catch (_) {}
   }

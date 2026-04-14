@@ -65,3 +65,71 @@ test('lifecycle — setVisibility rejects invalid values', async () => {
     /invalid visibility/
   );
 });
+
+test('lifecycle — transfer rejects invalid visibility values', async () => {
+  await registry.createInstance({ slug: 'lc-tx-bad', name: 'Bad TX', kind: 'test-kind' });
+  await loader.register('lc-tx-bad');
+  await assert.rejects(
+    registry.transfer('lc-tx-bad', { visibility: 'potato' }),
+    /invalid visibility/
+  );
+  // Row is unchanged — still active, not transferred.
+  const row = registry.getBySlug('lc-tx-bad');
+  assert.strictEqual(row.status, 'active');
+  assert.strictEqual(row.transferred_at, null);
+});
+
+test('lifecycle — unarchive rejects non-archived satellites', async () => {
+  // lc-1 is currently transferred (from the earlier transfer test).
+  await assert.rejects(
+    registry.unarchive('lc-1'),
+    /cannot unarchive satellite in status 'transferred'/
+  );
+  // Unknown slug also rejects.
+  await assert.rejects(
+    registry.unarchive('does-not-exist'),
+    /no such satellite/
+  );
+});
+
+test('lifecycle — archive fires the kind onArchive hook', async () => {
+  // Write a one-off kind whose onArchive sets a meta key we can inspect.
+  const customDir = path.join(process.env.MOTHERSHIP_KINDS_DIR, 'archive-tracker');
+  fs.mkdirSync(customDir, { recursive: true });
+  fs.writeFileSync(path.join(customDir, 'index.js'),
+    `module.exports = {
+      kind: 'archive-tracker', displayName: 'Archive Tracker', version: '0.0.1',
+      description: 'fixture', defaultConfig: {}, directiveHandlers: {},
+      onCreate: async () => {},
+      onBoot: async () => {},
+      onArchive: async ({ db }) => {
+        db.run(
+          "INSERT OR REPLACE INTO satellite_meta (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+          ['archived_at_marker', '"yes"']
+        );
+      },
+      handlers: {}
+    };`);
+  fs.writeFileSync(path.join(customDir, 'schema.sql'), '');
+
+  try {
+    await registry.createInstance({ slug: 'lc-hook', name: 'Hook', kind: 'archive-tracker' });
+    await loader.register('lc-hook');
+
+    // Capture the dbFile path BEFORE archive unloads the satellite.
+    const dbFile = path.join(process.env.MOTHERSHIP_SATELLITES_DIR, 'lc-hook', 'db.sqlite');
+
+    await registry.archive('lc-hook');
+    assert.strictEqual(registry.getBySlug('lc-hook').status, 'archived');
+
+    // Re-open the DB file directly and confirm the hook wrote the marker.
+    const initSqlJs = require('sql.js');
+    const SQL = await initSqlJs();
+    const sdb = new SQL.Database(fs.readFileSync(dbFile));
+    const res = sdb.exec("SELECT value FROM satellite_meta WHERE key = 'archived_at_marker'");
+    assert.strictEqual(JSON.parse(res[0].values[0][0]), 'yes');
+    sdb.close();
+  } finally {
+    fs.rmSync(customDir, { recursive: true, force: true });
+  }
+});
