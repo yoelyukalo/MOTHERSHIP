@@ -17,6 +17,7 @@ const watcher = require('./src/watcher');
 const apiRoutes = require('./src/routes/api');
 const authRoutes = require('./src/routes/auth');
 const userMgmtRoutes = require('./src/routes/users');
+const actionsRoutes = require('./src/routes/actions');
 const migrate = require('./src/migrate-legacy-mirror');
 const healthcheck = require('./src/health-check');
 const satellites = require('./src/satellites');
@@ -34,6 +35,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/api/auth', authRoutes);
 app.use('/api', userMgmtRoutes);
 app.use('/api', apiRoutes);
+app.use('/api', actionsRoutes);
 
 // Dashboard — serve the UI
 app.get('/', (req, res) => {
