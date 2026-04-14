@@ -91,8 +91,8 @@ async function synthesizeFromContent({ content, sourceId, userId }) {
   try {
     logAction({
       kind: 'mothership_synthesis',
-      subject: 'wiki synthesis',
-      data: { prompt_version: 'synthesis.wiki' },
+      subject: `wiki synthesis: +${created} new, ${merged} merged`,
+      data: { created, merged, prompt_version: 'synthesis.wiki' },
       sourceType: 'hook',
       sourceId,
       userId

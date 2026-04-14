@@ -124,10 +124,11 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {}, 
 }
 
 async function processPdf(filePath, { source, baseMeta = {}, userId } = {}) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('processPdf: no userId and no system owner');
   const pdf = require('./pdf');
-  const r = await pdf.processPdfFile(filePath, { source, baseMeta, userId });
+  const r = await pdf.processPdfFile(filePath, { source, baseMeta, userId: resolvedUserId });
   try {
-    const resolvedUserId = userId || auth.getSystemOwnerId();
     logAction({
       kind: 'mothership_categorize',
       subject: 'categorized as pdf',

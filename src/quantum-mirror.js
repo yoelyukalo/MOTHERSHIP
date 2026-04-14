@@ -100,6 +100,8 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   }
 
   db.log('info', 'quantum-mirror', `synthesis: +${created} new, ${superseded} superseded`);
+  // logAction already swallows errors internally, so no outer try/catch here —
+  // matches the bare db.log pattern above. Adding a guard would be dead code.
   logAction({
     kind: 'mothership_synthesis',
     subject: `mirror synthesis: +${created} new, ${superseded} superseded`,
