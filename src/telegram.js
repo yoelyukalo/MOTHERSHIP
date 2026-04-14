@@ -176,6 +176,100 @@ function init() {
         }
         return;
       }
+
+      if (cmd === '/reflect') {
+        try {
+          const reflection = require('./reflection');
+          const ownerId = auth.getSystemOwnerId();
+          if (!ownerId) {
+            await bot.sendMessage(chatId, '⚠ No system owner yet — run bootstrap first.', { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          const out = await reflection.runNow({ userId: ownerId });
+          if (out.status === 'already_running') {
+            await bot.sendMessage(chatId, '⏳ Reflection already running — try again in a minute.', { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          if (out.status === 'failed') {
+            await bot.sendMessage(chatId, `⚠ Reflection failed: ${out.error}`, { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          const latest = db.getLatestReflection({ userId: ownerId });
+          if (latest) {
+            await reflection.deliverBriefing({ reflection: latest, telegramBot: bot, telegramChatId: chatId });
+          }
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Reflect failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
+
+      if (cmd === '/proposals') {
+        try {
+          const proposals = db.getPendingPromptProposals();
+          if (!proposals.length) {
+            await bot.sendMessage(chatId, '✔ No pending prompt proposals.', { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          for (const p of proposals) {
+            const replay = p.replay_results_json;
+            let replayNote;
+            if (replay?.skipped) {
+              replayNote = `(replay skipped: ${replay.reason})`;
+            } else if (replay) {
+              const pct = Math.round((replay.agreement_rate || 0) * 100);
+              replayNote = `agreement: ${pct}% over ${replay.sample_size || 0} samples`;
+            } else if (p.replay_error) {
+              replayNote = `(replay failed: ${p.replay_error})`;
+            } else {
+              replayNote = '(no replay data)';
+            }
+            const text = `📝 *${p.prompt_name}* v${p.base_version}\n\n${p.rationale}\n\n${replayNote}`;
+            await bot.sendMessage(chatId, text, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '✅ Approve', callback_data: `proposal:approve:${p.id}` },
+                  { text: '❌ Reject', callback_data: `proposal:reject:${p.id}` }
+                ]]
+              }
+            }).catch(() => {});
+          }
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Proposals failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
+
+      if (cmd === '/pending') {
+        try {
+          const ownerId = auth.getSystemOwnerId();
+          if (!ownerId) {
+            await bot.sendMessage(chatId, '⚠ No system owner yet.', { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          const pendingRows = db.getPendingActions({ userId: ownerId });
+          if (!pendingRows.length) {
+            await bot.sendMessage(chatId, '✔ No pending actions.', { reply_to_message_id: msg.message_id }).catch(() => {});
+            return;
+          }
+          for (const a of pendingRows) {
+            const text = `📋 *${a.kind}*: ${a.subject}\nconf ${a.confidence.toFixed(2)}`;
+            await bot.sendMessage(chatId, text, {
+              parse_mode: 'Markdown',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '✅ Confirm', callback_data: `action:confirm:${a.id}` },
+                  { text: '❌ Reject', callback_data: `action:reject:${a.id}` }
+                ]]
+              }
+            }).catch(() => {});
+          }
+        } catch (err) {
+          await bot.sendMessage(chatId, `⚠ Pending failed: ${err.message}`).catch(() => {});
+        }
+        return;
+      }
     }
 
     // PHOTO — ask mode, then process
@@ -435,10 +529,59 @@ function init() {
     }
   });
 
-  // CALLBACK QUERY — user picked a processing mode
+  // CALLBACK QUERY — user picked a processing mode, or confirmed/rejected an action/proposal
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
+
+    // --- Phase 5: action confirm/reject ---
+    if (query.data?.startsWith('action:')) {
+      const parts = query.data.split(':');
+      const verb = parts[1];
+      const actionId = parts.slice(2).join(':'); // in case the id itself contains colons
+      const actionLogger = require('./action-logger');
+      try {
+        if (verb === 'confirm') actionLogger.confirmPendingAction(actionId);
+        else if (verb === 'reject') actionLogger.rejectPendingAction(actionId);
+        bot.answerCallbackQuery(query.id, { text: `action ${verb}ed` }).catch(() => {});
+        bot.editMessageText(`✔ ${verb}ed`, { chat_id: chatId, message_id: msgId }).catch(() => {});
+      } catch (err) {
+        bot.answerCallbackQuery(query.id, { text: `failed: ${err.message}` }).catch(() => {});
+      }
+      return;
+    }
+
+    // --- Phase 5: proposal approve/reject ---
+    if (query.data?.startsWith('proposal:')) {
+      const parts = query.data.split(':');
+      const verb = parts[1];
+      const proposalId = parts.slice(2).join(':');
+      try {
+        const proposal = db.getPromptProposal(proposalId);
+        if (!proposal || proposal.status !== 'pending') {
+          bot.answerCallbackQuery(query.id, { text: 'already resolved' }).catch(() => {});
+          return;
+        }
+        if (verb === 'approve') {
+          const registry = require('./prompts/registry');
+          registry.createVersion(proposal.prompt_name, proposal.proposed_body, {
+            createdBy: 'reflection-telegram',
+            parentVersion: proposal.base_version,
+            activate: true
+          });
+          db.updatePromptProposalStatus(proposalId, 'approved');
+        } else if (verb === 'reject') {
+          db.updatePromptProposalStatus(proposalId, 'rejected');
+        }
+        bot.answerCallbackQuery(query.id, { text: `${verb}ed` }).catch(() => {});
+        bot.editMessageText(`✔ ${verb}ed ${proposal.prompt_name}`, { chat_id: chatId, message_id: msgId }).catch(() => {});
+      } catch (err) {
+        bot.answerCallbackQuery(query.id, { text: `failed: ${err.message}` }).catch(() => {});
+      }
+      return;
+    }
+
+    // --- Existing media mode-picker callbacks (mode:*) — keep below ---
     const key = `${chatId}:${msgId}`;
     const entry = pending.get(key);
 
