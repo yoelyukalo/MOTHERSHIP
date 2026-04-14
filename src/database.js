@@ -773,7 +773,7 @@ function getMaxPromptVersion(name) {
   stmt.step();
   const row = stmt.getAsObject();
   stmt.free();
-  return row.max_version || 0;
+  return row.max_version ?? 0;
 }
 
 function setActivePromptVersion(name, version) {

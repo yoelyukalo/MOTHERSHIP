@@ -27,9 +27,17 @@ test('addPromptVersion writes a row and returns its id', () => {
   assert.ok(id);
 });
 
-test('addPromptVersion requires name and body', () => {
+test('addPromptVersion requires name', () => {
   assert.throws(() => db.addPromptVersion({ version: 1, body: 'x' }), /name required/);
+});
+
+test('addPromptVersion requires body', () => {
   assert.throws(() => db.addPromptVersion({ name: 'x', version: 1 }), /body required/);
+});
+
+test('addPromptVersion requires version to be a number', () => {
+  assert.throws(() => db.addPromptVersion({ name: 'x', body: 'y' }), /version required/);
+  assert.throws(() => db.addPromptVersion({ name: 'x', body: 'y', version: '1' }), /version required/);
 });
 
 test('getActivePromptVersion returns the is_active row', () => {
