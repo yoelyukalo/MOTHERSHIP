@@ -68,16 +68,20 @@ test('getPromptProposal returns null for unknown id', () => {
 });
 
 test('getPendingPromptProposals returns pending rows DESC', () => {
+  const id1 = db.addPromptProposal({ promptName: 'seed.pending.a', baseVersion: 1, proposedBody: 'b', rationale: 'r' });
+  const id2 = db.addPromptProposal({ promptName: 'seed.pending.b', baseVersion: 1, proposedBody: 'b', rationale: 'r' });
   const rows = db.getPendingPromptProposals();
-  assert.ok(rows.length >= 2);
+  assert.ok(rows.find(r => r.id === id1));
+  assert.ok(rows.find(r => r.id === id2));
   assert.ok(rows.every(r => r.status === 'pending'));
 });
 
 test('updatePromptProposalStatus transitions to approved and sets resolved_at', () => {
-  const pending = db.getPendingPromptProposals();
-  const target = pending[0];
-  db.updatePromptProposalStatus(target.id, 'approved');
-  const refreshed = db.getPromptProposal(target.id);
+  const id = db.addPromptProposal({
+    promptName: 'approval.test', baseVersion: 1, proposedBody: 'b', rationale: 'r'
+  });
+  db.updatePromptProposalStatus(id, 'approved');
+  const refreshed = db.getPromptProposal(id);
   assert.strictEqual(refreshed.status, 'approved');
   assert.ok(refreshed.resolved_at);
 });
@@ -92,8 +96,11 @@ test('updatePromptProposalStatus transitions to rejected', () => {
 });
 
 test('countPromptProposals filters by prompt_name and status', () => {
-  const n = db.countPromptProposals({ promptName: 'synthesis.mirror', status: 'pending' });
-  assert.ok(typeof n === 'number');
+  const uniqueName = `count.test.${Date.now()}`;
+  db.addPromptProposal({ promptName: uniqueName, baseVersion: 1, proposedBody: 'b', rationale: 'r' });
+  db.addPromptProposal({ promptName: uniqueName, baseVersion: 1, proposedBody: 'b', rationale: 'r' });
+  const n = db.countPromptProposals({ promptName: uniqueName, status: 'pending' });
+  assert.strictEqual(n, 2);
   const all = db.countPromptProposals({});
-  assert.ok(all >= n);
+  assert.ok(all >= 2);
 });

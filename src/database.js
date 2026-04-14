@@ -798,7 +798,7 @@ function addPromptProposal({ promptName, baseVersion, proposedBody, rationale,
        (id, prompt_name, base_version, proposed_body, rationale, replay_results_json, replay_error)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [id, promptName, baseVersion, proposedBody, rationale,
-     replayResultsJson === null ? null : JSON.stringify(replayResultsJson), replayError]
+     replayResultsJson == null ? null : JSON.stringify(replayResultsJson), replayError]
   );
   save();
   return id;
