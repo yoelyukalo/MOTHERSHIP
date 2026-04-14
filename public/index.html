@@ -1305,6 +1305,104 @@
     }
     .action-btn.confirm:hover { background: rgba(132,211,164,0.12); border-color: rgba(132,211,164,0.4); color: var(--green); }
     .action-btn.reject:hover { background: rgba(232,122,125,0.12); border-color: rgba(232,122,125,0.4); color: var(--red); }
+
+    /* ── REFLECTIONS TAB ── */
+    .reflection-meta {
+      color: var(--text-dim);
+      font-size: 12px;
+      font-family: 'Geist Mono', monospace;
+      margin-bottom: 12px;
+    }
+    .reflection-md {
+      color: var(--text);
+      font-family: 'Geist', sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
+    }
+    .proposal-card {
+      background: var(--glass);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-inner);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .proposal-card:last-child { margin-bottom: 0; }
+    .proposal-head {
+      display: flex;
+      gap: 12px;
+      align-items: baseline;
+      margin-bottom: 8px;
+    }
+    .proposal-head strong {
+      color: var(--ice);
+      font-family: 'Geist Mono', monospace;
+    }
+    .proposal-version {
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+    .proposal-date {
+      color: var(--muted);
+      font-size: 11px;
+      margin-left: auto;
+    }
+    .proposal-rationale {
+      color: var(--text);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .proposal-diff {
+      margin-bottom: 12px;
+    }
+    .proposal-diff summary {
+      color: var(--text-dim);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .proposal-diff pre {
+      background: var(--bg-0);
+      border: 1px solid var(--hair);
+      border-radius: var(--radius-inner);
+      padding: 12px;
+      color: var(--text);
+      font-family: 'Geist Mono', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      margin-top: 8px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .replay-results,
+    .replay-skipped,
+    .replay-error,
+    .replay-none {
+      padding: 8px 12px;
+      border-radius: var(--radius-inner);
+      font-size: 12px;
+      font-family: 'Geist Mono', monospace;
+      margin-bottom: 12px;
+    }
+    .replay-results {
+      background: var(--glass-hi);
+      border: 1px solid var(--hair-hi);
+      color: var(--text);
+    }
+    .replay-skipped {
+      color: var(--text-dim);
+      border: 1px solid var(--hair);
+    }
+    .replay-error {
+      background: var(--glass);
+      border: 1px solid var(--red);
+      color: var(--red);
+    }
+    .replay-none {
+      color: var(--muted);
+    }
+    .proposal-actions {
+      display: flex;
+      gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -1338,6 +1436,7 @@
       <button class="nav-tab" data-view="mirror">Quantum Mirror</button>
       <button class="nav-tab" data-view="messages">Messages</button>
       <button class="nav-tab" data-view="actions">Actions</button>
+      <button class="nav-tab" data-view="reflections">Reflections</button>
       <button class="nav-tab dim" data-view="logs">System Log</button>
     </div>
     <div class="nav-status">
@@ -1489,6 +1588,33 @@
       </div>
     </section>
 
+    <!-- ── REFLECTIONS ── -->
+    <section class="view" id="view-reflections">
+      <div class="page-head">
+        <h1>Reflections</h1>
+        <div class="page-sub">Daily self-improvement briefings and pending prompt proposals</div>
+      </div>
+
+      <div class="mirror-panel" style="margin-bottom:24px;">
+        <div class="mirror-panel-head">
+          <h2>Latest briefing</h2>
+        </div>
+        <div class="mirror-panel-body" id="reflection-briefing-body" style="padding:16px 20px;">
+          <div class="empty">No reflections yet. Run /reflect via Telegram or wait for the daily pass.</div>
+        </div>
+      </div>
+
+      <div class="mirror-panel">
+        <div class="mirror-panel-head">
+          <h2>Pending prompt proposals</h2>
+          <span class="pill strong" id="proposals-count">0</span>
+        </div>
+        <div class="mirror-panel-body" id="reflection-proposals-body" style="padding:16px 20px;">
+          <div class="empty">No pending proposals.</div>
+        </div>
+      </div>
+    </section>
+
     <!-- ── SYSTEM LOG ── -->
     <section class="view" id="view-logs">
       <div class="page-head">
@@ -1621,6 +1747,7 @@
         if (tab.dataset.view === 'messages') refreshAllMessages();
         if (tab.dataset.view === 'logs') refreshAllLogs();
         if (tab.dataset.view === 'actions') loadActions();
+        if (tab.dataset.view === 'reflections') loadReflections();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
@@ -1831,6 +1958,93 @@
         <span class="action-conf">conf ${(+(a.confidence) || 0).toFixed(2)}</span>
         <button class="action-btn confirm" data-confirm="${escapeAttr(a.id)}">✓</button>
         <button class="action-btn reject" data-reject="${escapeAttr(a.id)}">✗</button>
+      </div>`;
+    }
+
+    /* ── Reflections ── */
+    async function loadReflections() {
+      try {
+        const [briefingRes, proposalsRes] = await Promise.all([
+          authFetch('/api/reflections/latest').then(r => r.json()),
+          authFetch('/api/prompt-proposals?status=pending').then(r => r.json())
+        ]);
+
+        const briefingEl = document.getElementById('reflection-briefing-body');
+        if (briefingRes.reflection) {
+          const r = briefingRes.reflection;
+          const bodyHtml = escapeHtml(r.briefing_md).replace(/\n/g, '<br>');
+          briefingEl.innerHTML = `
+            <div class="reflection-meta">${escapeHtml(r.generated_at)} · ${escapeHtml(String(r.action_count))} actions</div>
+            <div class="reflection-md">${bodyHtml}</div>
+          `;
+        } else {
+          briefingEl.innerHTML = '<div class="empty">No reflections yet. Run /reflect via Telegram or wait for the daily pass.</div>';
+        }
+
+        const proposalsEl = document.getElementById('reflection-proposals-body');
+        const countEl = document.getElementById('proposals-count');
+        const proposals = proposalsRes.proposals || [];
+        countEl.textContent = proposals.length;
+
+        if (proposals.length === 0) {
+          proposalsEl.innerHTML = '<div class="empty">No pending proposals.</div>';
+        } else {
+          proposalsEl.innerHTML = proposals.map(renderProposalCard).join('');
+
+          proposalsEl.querySelectorAll('[data-approve]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              if (!confirm(`Approve change to ${btn.dataset.promptName}?`)) return;
+              btn.disabled = true;
+              await authFetch(`/api/prompt-proposals/${btn.dataset.approve}/approve`, { method: 'POST' });
+              loadReflections();
+            });
+          });
+          proposalsEl.querySelectorAll('[data-reject]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              btn.disabled = true;
+              await authFetch(`/api/prompt-proposals/${btn.dataset.reject}/reject`, { method: 'POST' });
+              loadReflections();
+            });
+          });
+        }
+      } catch (e) {}
+    }
+
+    function renderProposalCard(p) {
+      const replay = p.replay_results_json;
+      let replayBlock;
+      if (replay && replay.skipped) {
+        replayBlock = `<div class="replay-skipped">Replay skipped: ${escapeHtml(replay.reason || '')}</div>`;
+      } else if (replay) {
+        const pct = Math.round((replay.agreement_rate || 0) * 100);
+        const regressions = (replay.regressions && replay.regressions.length) || 0;
+        const improvements = (replay.improvements && replay.improvements.length) || 0;
+        replayBlock = `<div class="replay-results">
+          Agreement: ${pct}% over ${replay.sample_size || 0} samples
+          · ${regressions} regressions · ${improvements} improvements
+        </div>`;
+      } else if (p.replay_error) {
+        replayBlock = `<div class="replay-error">Replay failed: ${escapeHtml(p.replay_error)}</div>`;
+      } else {
+        replayBlock = '<div class="replay-none">(no replay data)</div>';
+      }
+
+      return `<div class="proposal-card">
+        <div class="proposal-head">
+          <strong>${escapeHtml(p.prompt_name)}</strong>
+          <span class="proposal-version">v${escapeHtml(String(p.base_version))}</span>
+          <span class="proposal-date">${escapeHtml(p.created_at)}</span>
+        </div>
+        <div class="proposal-rationale">${escapeHtml(p.rationale)}</div>
+        <details class="proposal-diff">
+          <summary>Proposed body</summary>
+          <pre>${escapeHtml(p.proposed_body)}</pre>
+        </details>
+        ${replayBlock}
+        <div class="proposal-actions">
+          <button class="action-btn confirm" data-approve="${escapeAttr(p.id)}" data-prompt-name="${escapeAttr(p.prompt_name)}">Approve</button>
+          <button class="action-btn reject" data-reject="${escapeAttr(p.id)}">Reject</button>
+        </div>
       </div>`;
     }
 
