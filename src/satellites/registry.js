@@ -191,6 +191,10 @@ function writeDbFile(sdb, filePath) {
   fs.writeFileSync(filePath, Buffer.from(bytes));
 }
 
+// Draft linking happens at the API layer (routes/api.js) because the draft
+// is linked AFTER createInstance returns and the API knows the draft slug.
+// Callers that need to link a draft should invoke drafts.linkToSatellite
+// themselves with the returned id.
 async function createInstance({
   slug,
   name,
@@ -198,7 +202,6 @@ async function createInstance({
   visibility = 'full',
   owner = 'mothership',
   config = {},
-  fromDraftSlug = null,
   notes = null
 }) {
   if (!validateSlug(slug)) throw new Error(`invalid slug: ${slug}`);
@@ -240,8 +243,6 @@ async function createInstance({
       notes
     });
     rowInserted = true;
-
-    // NOTE: Task 10 (drafts) will add: if (fromDraftSlug) drafts.linkToSatellite(fromDraftSlug, id)
 
     return { id, slug, status: 'active' };
   } catch (err) {
@@ -287,6 +288,7 @@ async function transfer(slug, { visibility, owner } = {}) {
   if (visibility && !VALID_VISIBILITIES.includes(visibility)) {
     throw new Error(`invalid visibility: ${visibility}`);
   }
+  if (!getBySlug(slug)) throw new Error(`no such satellite: ${slug}`);
   const loader = require('./loader');
   const raw = db._raw();
   const patches = ["status = 'transferred'", "transferred_at = datetime('now')"];

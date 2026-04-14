@@ -12,6 +12,7 @@ const obsidian = require('../exporters/obsidian');
 const retriever = require('../memory/retriever');
 const conversation = require('../conversation');
 const hooks = require('../conversation-hooks');
+const satellites = require('../satellites');
 
 // --- Status ---
 
@@ -159,8 +160,6 @@ router.post('/briefing', async (req, res) => {
 
 // --- Satellites ---
 
-const satellites = require('../satellites');
-
 // Map a thrown error to an HTTP status. `registry.js` and `directives.js`
 // throw plain Error with predictable messages for known validation failures;
 // anything else is treated as 500.
@@ -288,18 +287,27 @@ router.post('/satellites/:slug/directives', (req, res) => {
 });
 
 router.get('/satellites/:slug/directives', (req, res) => {
-  const entry = satellites.loader.get(req.params.slug);
-  if (!entry) return res.status(404).json({ error: 'satellite not loaded' });
-  const result = entry.db.exec(
-    'SELECT id, kind, payload_json, status, error, applied_at FROM satellite_directives_history ORDER BY applied_at DESC'
-  );
-  if (!result.length) return res.json([]);
-  const [firstResult] = result;
-  res.json(firstResult.values.map(row => {
-    const obj = {};
-    firstResult.columns.forEach((c, i) => { obj[c] = row[i]; });
-    return obj;
-  }));
+  try {
+    const entry = satellites.loader.get(req.params.slug);
+    if (!entry) return res.status(404).json({ error: 'satellite not loaded' });
+    // `satellite_directives_history` is in the sovereignty wrapper's allow
+    // list for `limited` visibility, but `none` visibility would throw
+    // VisibilityViolation here — the catch below turns it into 403-style
+    // behavior via statusForError (which doesn't know about this specific
+    // class, so falls through to 500 with the wrapper's own message).
+    const result = entry.db.exec(
+      'SELECT id, kind, payload_json, status, error, applied_at FROM satellite_directives_history ORDER BY applied_at DESC'
+    );
+    if (!result.length) return res.json([]);
+    const [firstResult] = result;
+    res.json(firstResult.values.map(row => {
+      const obj = {};
+      firstResult.columns.forEach((c, i) => { obj[c] = row[i]; });
+      return obj;
+    }));
+  } catch (err) {
+    res.status(statusForError(err)).json({ error: err.message });
+  }
 });
 
 module.exports = router;
