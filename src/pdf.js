@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { PDFParse } = require('pdf-parse');
 const db = require('./database');
+const auth = require('./auth');
 
 const MAX_PDF_BYTES = parseInt(process.env.MAX_PDF_BYTES || String(50 * 1024 * 1024), 10); // 50 MB
 const FETCH_TIMEOUT_MS = parseInt(process.env.PDF_FETCH_TIMEOUT_MS || '60000', 10);
@@ -101,10 +102,13 @@ async function fetchPdfBuffer(url, fetcher) {
  * Content is truncated to MAX_STORED_CHARS; the returned text is not.
  *
  * @param {{ title: string, pageCount: number, text: string, byteSize: number,
- *           source: string, baseMeta: object, urlOrPath: string, isFile: boolean }}
+ *           source: string, baseMeta: object, urlOrPath: string, isFile: boolean,
+ *           userId: string|null }}
  * @returns {string} messageId (UUID)
  */
-function storePdfMessage({ title, pageCount, text, byteSize, source, baseMeta, urlOrPath, isFile }) {
+function storePdfMessage({ title, pageCount, text, byteSize, source, baseMeta, urlOrPath, isFile, userId }) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('storePdfMessage: no userId and no system owner');
   const truncated = text.length > MAX_STORED_CHARS;
   const storedText = truncated ? text.slice(0, MAX_STORED_CHARS) : text;
   const content = `[PDF] ${title} (${pageCount} pages)\n\n${storedText}`;
@@ -123,7 +127,7 @@ function storePdfMessage({ title, pageCount, text, byteSize, source, baseMeta, u
     meta.source_url = urlOrPath;
   }
 
-  return db.addMessage(content, source, 'pdf-summary', meta);
+  return db.addMessage(content, source, 'pdf-summary', meta, resolvedUserId);
 }
 
 /**
@@ -133,7 +137,7 @@ function storePdfMessage({ title, pageCount, text, byteSize, source, baseMeta, u
  * @param {{ source?: string, baseMeta?: object, _fetcher?: Function, _Parser?: typeof PDFParse }} opts
  * @returns {Promise<{ kind: 'pdf', title: string, pageCount: number, text: string, messageId: string, byteSize: number }>}
  */
-async function processPdfUrl(url, { source = 'telegram', baseMeta = {}, _fetcher = fetch, _Parser = PDFParse } = {}) {
+async function processPdfUrl(url, { source = 'telegram', baseMeta = {}, userId, _fetcher = fetch, _Parser = PDFParse } = {}) {
   const buf = await fetchPdfBuffer(url, _fetcher);
   const { text, pageCount } = await parsePdfBuffer(buf, { _Parser });
   const title = urlTitleFrom(url);
@@ -146,7 +150,8 @@ async function processPdfUrl(url, { source = 'telegram', baseMeta = {}, _fetcher
     source,
     baseMeta,
     urlOrPath: url,
-    isFile: false
+    isFile: false,
+    userId
   });
 
   return { kind: 'pdf', title, pageCount, text, messageId, byteSize: buf.length };
@@ -159,7 +164,7 @@ async function processPdfUrl(url, { source = 'telegram', baseMeta = {}, _fetcher
  * @param {{ source?: string, baseMeta?: object, _Parser?: typeof PDFParse }} opts
  * @returns {Promise<{ kind: 'pdf', title: string, pageCount: number, text: string, messageId: string, byteSize: number }>}
  */
-async function processPdfFile(filePath, { source = 'file-drop', baseMeta = {}, _Parser = PDFParse } = {}) {
+async function processPdfFile(filePath, { source = 'file-drop', baseMeta = {}, userId, _Parser = PDFParse } = {}) {
   const buf = fs.readFileSync(filePath);
 
   if (buf.length > MAX_PDF_BYTES) {
@@ -179,7 +184,8 @@ async function processPdfFile(filePath, { source = 'file-drop', baseMeta = {}, _
     source,
     baseMeta,
     urlOrPath: filePath,
-    isFile: true
+    isFile: true,
+    userId
   });
 
   return { kind: 'pdf', title, pageCount, text, messageId, byteSize: buf.length };

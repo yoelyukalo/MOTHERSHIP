@@ -3,12 +3,16 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { v4: uuidv4 } = require('uuid');
 
 const tmpDb = path.join(__dirname, `.tmp-pdf-${Date.now()}.db`);
 process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../src/database');
 const pdf = require('../src/pdf');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
+const systemOwner = require('../src/auth/system-owner');
 
 // Fake PDFParse class for tests — mirrors the real v2 API
 function makeFakeParser({ text = 'hello pdf world', pages = 3 } = {}) {
@@ -24,6 +28,22 @@ function makeFakeParser({ text = 'hello pdf world', pages = 3 } = {}) {
 test('parsePdfBuffer — extracts text and page count via injected parser', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
+
+  // Seed a mothership_admin so getSystemOwnerId() resolves for untethered pipelines
+  await authRoles.seedOnce(db);
+  const adminId = await users.createUser({ email: 'admin@test', password: 'pass' });
+  const raw = db._raw();
+  const stmt = raw.prepare("SELECT id FROM roles WHERE name = 'mothership_admin'");
+  stmt.step();
+  const adminRoleId = stmt.getAsObject().id;
+  stmt.free();
+  raw.run(
+    `INSERT INTO role_assignments (id, principal_type, principal_id, role_id, satellite_id)
+     VALUES (?, 'user', ?, ?, NULL)`,
+    [uuidv4(), adminId, adminRoleId]
+  );
+  db.save();
+  systemOwner.clearCache();
 
   const FakeParser = makeFakeParser({ text: 'test content', pages: 5 });
   const result = await pdf.parsePdfBuffer(Buffer.from('fake-pdf-bytes'), { _Parser: FakeParser });
@@ -55,7 +75,7 @@ test('processPdfUrl — downloads, parses, stores to DB', async () => {
   assert.ok(r.messageId);
   assert.strictEqual(r.title, 'paper.pdf');
 
-  const rows = db.getMessages({ category: 'pdf-summary' });
+  const rows = db.getMessages({ category: 'pdf-summary', allUsers: true });
   assert.strictEqual(rows.length, 1);
   assert.ok(rows[0].content.includes('URL PDF content'));
   assert.ok(rows[0].content.includes('7 pages'));
@@ -105,7 +125,7 @@ test('processPdfFile — reads local file, parses, stores to DB', async (t) => {
   assert.ok(r.messageId);
   assert.strictEqual(r.title, path.basename(tmpPdf));
 
-  const rows = db.getMessages({ category: 'pdf-summary' });
+  const rows = db.getMessages({ category: 'pdf-summary', allUsers: true });
   // Includes rows from previous test — find by title
   const thisRow = rows.find(r => r.metadata.title === path.basename(tmpPdf));
   assert.ok(thisRow);

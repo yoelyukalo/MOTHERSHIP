@@ -14,6 +14,7 @@ const Anthropic = require('@anthropic-ai/sdk');
 const fs = require('fs');
 const path = require('path');
 const db = require('./database');
+const auth = require('./auth');
 const { HEALTH_CONTRADICTIONS, GAP_ANALYSIS } = require('./memory/synthesis-prompts');
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
@@ -43,7 +44,7 @@ function parseJsonFromText(text) {
 }
 
 async function decayStale() {
-  const rows = db.getMirrorEntries({ activeOnly: true, limit: 10000 });
+  const rows = db.getMirrorEntries({ activeOnly: true, limit: 10000, allUsers: true });
   let decayed = 0;
   for (const r of rows) {
     if (daysSince(r.updated_at) >= DECAY_AFTER_DAYS) {
@@ -59,7 +60,7 @@ async function decayStale() {
 }
 
 async function scanContradictions() {
-  const rows = db.getMirrorEntries({ activeOnly: true, limit: 200 });
+  const rows = db.getMirrorEntries({ activeOnly: true, limit: 200, allUsers: true });
   if (rows.length < 2) return [];
   const c = getClient();
   const res = await c.messages.create({
@@ -73,8 +74,8 @@ async function scanContradictions() {
 }
 
 async function gapAnalysis() {
-  const rows = db.getMirrorEntries({ activeOnly: true, limit: 200 });
-  const wiki = db.getAllWikiEntries().map(w => w.topic);
+  const rows = db.getMirrorEntries({ activeOnly: true, limit: 200, allUsers: true });
+  const wiki = db.getAllWikiEntries({ allUsers: true }).map(w => w.topic);
   const snapshot = rows.map(r => `- [${r.category}] ${r.content}`).join('\n');
   const c = getClient();
   const res = await c.messages.create({

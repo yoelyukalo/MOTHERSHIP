@@ -13,6 +13,7 @@ const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
 const db = require('./database');
+const auth = require('./auth');
 const processor = require('./processor');
 const hooks = require('./conversation-hooks');
 
@@ -70,13 +71,18 @@ function init(folderPath) {
     const TEXT_EXTS = ['.txt', '.md', '.json', '.csv', '.log', '.xml', '.html', '.yml', '.yaml'];
     if (TEXT_EXTS.includes(ext)) {
       try {
+        const ownerId = auth.getSystemOwnerId();
+        if (!ownerId) {
+          console.warn(`  ⚠ Watcher: no system owner — text file not stored: ${filename} (run bootstrap first)`);
+          return;
+        }
         const content = fs.readFileSync(filePath, 'utf-8');
         const messageId = db.addMessage(content, 'file-drop', 'uncategorized', {
           filename,
           filepath: filePath,
           size: fs.statSync(filePath).size,
           type: ext.slice(1)
-        });
+        }, ownerId);
         console.log(`  ✔ Stored text file: ${filename}`);
         hooks.postIngestion({ content, sourceId: messageId }).catch(() => {});
       } catch (err) {

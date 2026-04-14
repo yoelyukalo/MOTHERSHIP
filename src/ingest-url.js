@@ -24,6 +24,7 @@ const defaultYtdlp = require('./ytdlp');
 const defaultProcessor = require('./processor');
 const defaultUrlSummary = require('./url');
 const defaultDb = require('./database');
+const auth = require('./auth');
 
 const DOWNLOADS_DEFAULT = path.resolve(process.env.DOWNLOADS_FOLDER || './downloads');
 
@@ -74,6 +75,7 @@ async function dispatchVideo({ url, downloaded, source, baseMeta, processor }) {
  * @param {object} [opts]
  * @param {string} [opts.source]             // 'telegram' | 'file-drop' | etc
  * @param {object} [opts.baseMeta]           // merged into DB metadata
+ * @param {string} [opts.userId]             // owner of ingested rows; falls back to system owner
  * @param {string} [opts.downloadsPath]      // where yt-dlp puts files
  * @param {object} [opts._router]            // { classify } — injected for tests
  * @param {object} [opts._pdf]               // { processPdfUrl } — injected
@@ -93,6 +95,7 @@ async function ingestUrl(url, opts = {}) {
   const {
     source = 'telegram',
     baseMeta = {},
+    userId: explicitUserId,
     downloadsPath = DOWNLOADS_DEFAULT,
     _router = defaultRouter,
     _pdf = defaultPdf,
@@ -101,6 +104,9 @@ async function ingestUrl(url, opts = {}) {
     _urlSummary = defaultUrlSummary,
     _db = defaultDb
   } = opts;
+
+  const userId = explicitUserId || auth.getSystemOwnerId();
+  if (!userId) throw new Error('ingestUrl: no userId and no system owner — run bootstrap first');
 
   const classification = await _router.classify(url);
 
@@ -145,7 +151,7 @@ async function ingestUrl(url, opts = {}) {
     source_url: r.url,
     title: r.title,
     description: r.description
-  });
+  }, userId);
   return {
     kind: 'webpage',
     messageId,

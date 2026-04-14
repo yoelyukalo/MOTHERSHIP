@@ -2,12 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
+const { v4: uuidv4 } = require('uuid');
 
 const tmpDb = path.join(__dirname, `.tmp-iu-${Date.now()}.db`);
 process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../src/database');
 const { ingestUrl } = require('../src/ingest-url');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
+const systemOwner = require('../src/auth/system-owner');
 
 // Define a fake NoVideoError class; tests pass this via _ytdlp
 class FakeNoVideoError extends Error {
@@ -17,6 +21,22 @@ class FakeNoVideoError extends Error {
 test('ingestUrl — pdf route via extension', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
+
+  // Seed a mothership_admin so getSystemOwnerId() resolves for untethered pipelines
+  await authRoles.seedOnce(db);
+  const adminId = await users.createUser({ email: 'admin@test', password: 'pass' });
+  const raw = db._raw();
+  const stmt = raw.prepare("SELECT id FROM roles WHERE name = 'mothership_admin'");
+  stmt.step();
+  const adminRoleId = stmt.getAsObject().id;
+  stmt.free();
+  raw.run(
+    `INSERT INTO role_assignments (id, principal_type, principal_id, role_id, satellite_id)
+     VALUES (?, 'user', ?, ?, NULL)`,
+    [uuidv4(), adminId, adminRoleId]
+  );
+  db.save();
+  systemOwner.clearCache();
 
   const fakes = {
     _router: { classify: async () => ({ kind: 'pdf', source: 'extension' }) },
@@ -74,7 +94,7 @@ test('ingestUrl — webpage route falls to URL summary when ytdlp throws NoVideo
   assert.strictEqual(r.content, 'This is the summary of the article.');
 
   // Verify the row was stored with link-summary category
-  const rows = db.getMessages({ category: 'link-summary' });
+  const rows = db.getMessages({ category: 'link-summary', allUsers: true });
   assert.ok(rows.some(row => row.metadata.title === 'Test Article'));
 });
 

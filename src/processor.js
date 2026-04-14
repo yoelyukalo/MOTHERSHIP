@@ -8,6 +8,7 @@
 
 const path = require('path');
 const db = require('./database');
+const auth = require('./auth');
 const media = require('./media');
 const vision = require('./vision');
 const audio = require('./audio');
@@ -28,7 +29,9 @@ function kindFor(filePath) {
   return null;
 }
 
-async function processImage(filePath, { source, baseMeta = {} }) {
+async function processImage(filePath, { source, baseMeta = {}, userId } = {}) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('processImage: no userId and no system owner');
   const visionResult = await vision.analyzeImage(filePath);
   const content = `[Image] ${visionResult.description || ''}${visionResult.onScreenText ? `\n\nOn-screen text:\n${visionResult.onScreenText}` : ''}`;
   const messageId = db.addMessage(content, source, 'media-image', {
@@ -38,11 +41,13 @@ async function processImage(filePath, { source, baseMeta = {} }) {
     mode: 'vision',
     vision: visionResult,
     links: visionResult.links || []
-  });
+  }, resolvedUserId);
   return { kind: 'image', mode: 'vision', vision: visionResult, messageId };
 }
 
-async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }) {
+async function processVideo(filePath, { mode = 'vision', source, baseMeta = {}, userId } = {}) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('processVideo: no userId and no system owner');
   const fps = parseFloat(process.env.VISION_FPS || '0.5');
   const maxFrames = parseInt(process.env.VISION_MAX_FRAMES || '12', 10);
 
@@ -93,14 +98,14 @@ async function processVideo(filePath, { mode = 'vision', source, baseMeta = {} }
     transcript,
     links,
     partial_errors: errors.length ? errors.map(e => ({ stage: e.stage, message: e.err.message, status: e.err.status, code: e.err.cause?.code })) : undefined
-  });
+  }, resolvedUserId);
 
   return { kind: 'video', mode, vision: visionResult, transcript, errors: errors.map(e => e.stage), messageId };
 }
 
-async function processPdf(filePath, { source, baseMeta = {} }) {
+async function processPdf(filePath, { source, baseMeta = {}, userId } = {}) {
   const pdf = require('./pdf');
-  const r = await pdf.processPdfFile(filePath, { source, baseMeta });
+  const r = await pdf.processPdfFile(filePath, { source, baseMeta, userId });
   return {
     kind: 'pdf',
     title: r.title,
@@ -111,7 +116,9 @@ async function processPdf(filePath, { source, baseMeta = {} }) {
   };
 }
 
-async function processAudio(filePath, { source, baseMeta = {} }) {
+async function processAudio(filePath, { source, baseMeta = {}, userId } = {}) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('processAudio: no userId and no system owner');
   const fs = require('fs');
   const audioMod = require('./audio');
   const transcript = await audioMod.transcribeAudioFile(filePath);
@@ -124,11 +131,13 @@ async function processAudio(filePath, { source, baseMeta = {} }) {
     filename: title,
     byte_size: size,
     transcript
-  });
+  }, resolvedUserId);
   return { kind: 'audio', title, transcript, messageId, byteSize: size };
 }
 
-async function processText(filePath, { source, baseMeta = {} }) {
+async function processText(filePath, { source, baseMeta = {}, userId } = {}) {
+  const resolvedUserId = userId || auth.getSystemOwnerId();
+  if (!resolvedUserId) throw new Error('processText: no userId and no system owner');
   const fs = require('fs');
   const content = fs.readFileSync(filePath, 'utf-8');
   const title = path.basename(filePath);
@@ -141,17 +150,17 @@ async function processText(filePath, { source, baseMeta = {} }) {
     filename: title,
     byte_size: size,
     text_truncated: truncated
-  });
+  }, resolvedUserId);
   return { kind: 'text', title, content, messageId, byteSize: size };
 }
 
-async function processFile(filePath, { mode = 'vision', source = 'file-drop', baseMeta = {} } = {}) {
+async function processFile(filePath, { mode = 'vision', source = 'file-drop', baseMeta = {}, userId } = {}) {
   const kind = kindFor(filePath);
-  if (kind === 'image') return processImage(filePath, { source, baseMeta });
-  if (kind === 'video') return processVideo(filePath, { mode, source, baseMeta });
-  if (kind === 'pdf')   return processPdf(filePath, { source, baseMeta });
-  if (kind === 'audio') return processAudio(filePath, { source, baseMeta });
-  if (kind === 'text')  return processText(filePath, { source, baseMeta });
+  if (kind === 'image') return processImage(filePath, { source, baseMeta, userId });
+  if (kind === 'video') return processVideo(filePath, { mode, source, baseMeta, userId });
+  if (kind === 'pdf')   return processPdf(filePath, { source, baseMeta, userId });
+  if (kind === 'audio') return processAudio(filePath, { source, baseMeta, userId });
+  if (kind === 'text')  return processText(filePath, { source, baseMeta, userId });
   return null;
 }
 

@@ -11,6 +11,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const fs = require('fs');
 const path = require('path');
 const db = require('./database');
+const auth = require('./auth');
 const processor = require('./processor');
 const url = require('./url');
 const { ingestUrl } = require('./ingest-url');
@@ -21,7 +22,9 @@ const hooks = require('./conversation-hooks');
 // and persist it as a 'mothership' source row so conversation history sees it.
 async function sendMothershipReply(chatId, replyToId, text, baseMeta = {}) {
   if (!text) return;
-  const replyId = db.addMessage(text, 'mothership', 'reply', { ...baseMeta, in_reply_to: replyToId });
+  const ownerId = auth.getSystemOwnerId();
+  if (!ownerId) { console.warn('  ⚠ sendMothershipReply: no system owner — run bootstrap first'); return; }
+  const replyId = db.addMessage(text, 'mothership', 'reply', { ...baseMeta, in_reply_to: replyToId }, ownerId);
   // Fire-and-forget post-response synthesis. Errors are logged inside the hook.
   hooks.postResponse({
     userText: baseMeta._userText || '',
@@ -230,12 +233,15 @@ function init() {
 
         if (!result) {
           // Unknown file type — store a stub and acknowledge
-          db.addMessage(`[Unknown file] ${doc.file_name || filePath}`, 'telegram', 'unknown-file', {
-            ...baseMeta,
-            filepath: filePath,
-            filename: doc.file_name,
-            mime_type: doc.mime_type
-          });
+          const ownerId = auth.getSystemOwnerId();
+          if (ownerId) {
+            db.addMessage(`[Unknown file] ${doc.file_name || filePath}`, 'telegram', 'unknown-file', {
+              ...baseMeta,
+              filepath: filePath,
+              filename: doc.file_name,
+              mime_type: doc.mime_type
+            }, ownerId);
+          }
           await bot.editMessageText(`⚠ Unknown file type — stored raw metadata.`, { chat_id: chatId, message_id: sent.message_id }).catch(() => {});
           return;
         }
@@ -354,10 +360,15 @@ function init() {
     // TEXT — store, then either ack or process URLs
     if (msg.text) {
       const urls = url.extractUrls(msg.text);
-      db.addMessage(msg.text, 'telegram', urls.length ? 'link' : 'uncategorized', {
-        ...baseMeta,
-        links: urls
-      });
+      const ownerId = auth.getSystemOwnerId();
+      if (!ownerId) {
+        console.warn('  ⚠ Telegram text: no system owner — message not stored (run bootstrap first)');
+      } else {
+        db.addMessage(msg.text, 'telegram', urls.length ? 'link' : 'uncategorized', {
+          ...baseMeta,
+          links: urls
+        }, ownerId);
+      }
       console.log(`  💬 Telegram text from ${from}: ${msg.text.slice(0, 80)}`);
 
       if (!urls.length) {

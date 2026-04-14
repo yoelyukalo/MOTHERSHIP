@@ -109,7 +109,7 @@ async function exportAll() {
   ensureDir(wikiDir);
   ensureDir(reportsDir);
 
-  const allMirror = db.getMirrorEntries({ activeOnly: true, limit: 10000 });
+  const allMirror = db.getMirrorEntries({ activeOnly: true, limit: 10000, allUsers: true });
   const byCat = new Map();
   for (const e of allMirror) {
     if (!byCat.has(e.category)) byCat.set(e.category, []);
@@ -122,7 +122,7 @@ async function exportAll() {
     mirrorCount += list.length;
   }
 
-  const allWiki = db.getAllWikiEntries();
+  const allWiki = db.getAllWikiEntries({ allUsers: true });
   let wikiCount = 0;
   for (const entry of allWiki) {
     const links = findWikilinks(entry, allWiki);
