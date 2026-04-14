@@ -193,4 +193,83 @@ async function runNow({ userId }) {
   }
 }
 
-module.exports = { runNow, _setClient };
+const fs = require('fs');
+const pathMod = require('path');
+
+async function deliverBriefing({ reflection: refl, telegramBot = null, telegramChatId = null }) {
+  const result = { telegramSent: 0, obsidianPath: null };
+
+  // Obsidian write — skipped if vault not configured.
+  try {
+    const vault = process.env.OBSIDIAN_VAULT_PATH;
+    if (vault) {
+      const dir = pathMod.join(vault, '_reports');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const filename = `daily_${new Date().toISOString().slice(0, 10)}.md`;
+      const file = pathMod.join(dir, filename);
+      const body = [
+        '---',
+        'type: daily_reflection',
+        `generated: ${refl.generated_at}`,
+        `actions: ${refl.action_count}`,
+        '---',
+        '',
+        refl.briefing_md || ''
+      ].join('\n');
+      fs.writeFileSync(file, body, 'utf8');
+      result.obsidianPath = file;
+    }
+  } catch (err) {
+    try { db.log('error', 'reflection', `obsidian write failed: ${err.message}`); } catch {}
+  }
+
+  // Telegram push — independent of Obsidian result.
+  try {
+    if (telegramBot && telegramChatId) {
+      const CHUNK = 3900;
+      const text = refl.briefing_md || '(empty briefing)';
+      for (let i = 0; i < text.length; i += CHUNK) {
+        await telegramBot.sendMessage(telegramChatId, text.slice(i, i + CHUNK));
+      }
+      result.telegramSent = 1;
+    }
+  } catch (err) {
+    try { db.log('error', 'reflection', `telegram deliver failed: ${err.message}`); } catch {}
+  }
+
+  try {
+    db.markReflectionDelivered(refl.id, {
+      telegram: result.telegramSent > 0,
+      obsidianPath: result.obsidianPath
+    });
+  } catch (err) {
+    try { db.log('error', 'reflection', `mark delivered failed: ${err.message}`); } catch {}
+  }
+
+  return result;
+}
+
+let intervalHandle = null;
+function start({ hour = parseFloat(process.env.REFLECTION_HOUR || '7') } = {}) {
+  const HOUR_MS = 60 * 60 * 1000;
+  intervalHandle = setInterval(async () => {
+    if (new Date().getHours() !== Math.floor(hour)) return;
+    try {
+      const auth = require('./auth');
+      const ownerId = auth.getSystemOwnerId();
+      if (!ownerId) return;
+      await runNow({ userId: ownerId });
+    } catch (err) {
+      try { db.log('error', 'reflection', `scheduled run failed: ${err.message}`); } catch {}
+    }
+  }, HOUR_MS);
+  if (intervalHandle.unref) intervalHandle.unref();
+  try { db.log('info', 'reflection', `scheduled daily at hour ${hour}`); } catch {}
+}
+
+function stop() {
+  if (intervalHandle) clearInterval(intervalHandle);
+  intervalHandle = null;
+}
+
+module.exports = { runNow, deliverBriefing, start, stop, _setClient };

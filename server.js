@@ -112,6 +112,11 @@ async function boot() {
   healthcheck.start();
   console.log('  ✔ Health check scheduled');
 
+  // 4a. Schedule daily reflection (Phase 5)
+  const reflection = require('./src/reflection');
+  reflection.start();
+  console.log('  ✔ Reflection agent scheduled (daily)');
+
   // 5. Start server
   app.listen(PORT, () => {
     console.log(`  ✔ Dashboard live at http://localhost:${PORT}`);

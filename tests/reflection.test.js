@@ -145,3 +145,108 @@ test('runNow with empty actions window still runs cleanly', async () => {
 test('runNow requires userId', async () => {
   await assert.rejects(() => reflection.runNow({}), /userId required/);
 });
+
+test('deliverBriefing writes Obsidian file and marks reflection delivered', async () => {
+  const os = require('os');
+  const vault = path.join(os.tmpdir(), `vault-${Date.now()}`);
+  process.env.OBSIDIAN_VAULT_PATH = vault;
+  fs.mkdirSync(vault, { recursive: true });
+
+  // Seed a reflection row to deliver
+  const reflectionId = db.addReflection({
+    userId: uid,
+    windowStart: '2026-04-13T07:00:00Z',
+    windowEnd: '2026-04-14T07:00:00Z',
+    briefingMd: '# Delivery test\n\nThis is the briefing body.',
+    actionCount: 5
+  });
+  const refl = db.getLatestReflection({ userId: uid });
+
+  const sentMessages = [];
+  const fakeBot = {
+    sendMessage: async (chatId, text) => { sentMessages.push({ chatId, text }); return { message_id: 1 }; }
+  };
+
+  const result = await reflection.deliverBriefing({
+    reflection: refl,
+    telegramBot: fakeBot,
+    telegramChatId: 12345
+  });
+
+  assert.ok(result.obsidianPath);
+  assert.ok(fs.existsSync(result.obsidianPath));
+  assert.strictEqual(result.telegramSent, 1);
+  assert.strictEqual(sentMessages.length, 1);
+  assert.ok(sentMessages[0].text.includes('Delivery test'));
+
+  // Read the Obsidian file and verify frontmatter + body
+  const content = fs.readFileSync(result.obsidianPath, 'utf8');
+  assert.ok(content.includes('type: daily_reflection'));
+  assert.ok(content.includes('Delivery test'));
+
+  // Verify the reflection row was marked delivered
+  const refreshed = db.getLatestReflection({ userId: uid });
+  assert.strictEqual(refreshed.delivered_telegram, 1);
+  assert.strictEqual(refreshed.delivered_obsidian, result.obsidianPath);
+
+  // Clean up
+  fs.rmSync(vault, { recursive: true, force: true });
+  delete process.env.OBSIDIAN_VAULT_PATH;
+});
+
+test('deliverBriefing tolerates Telegram failure, still writes Obsidian', async () => {
+  const os = require('os');
+  const vault = path.join(os.tmpdir(), `vault2-${Date.now()}`);
+  process.env.OBSIDIAN_VAULT_PATH = vault;
+  fs.mkdirSync(vault, { recursive: true });
+
+  const reflectionId2 = db.addReflection({
+    userId: uid,
+    windowStart: '2026-04-13T07:00:00Z',
+    windowEnd: '2026-04-14T07:00:00Z',
+    briefingMd: 'partial delivery',
+    actionCount: 1
+  });
+  const refl = db.getLatestReflection({ userId: uid });
+
+  const fakeBot = {
+    sendMessage: async () => { throw new Error('tg down'); }
+  };
+
+  const result = await reflection.deliverBriefing({
+    reflection: refl,
+    telegramBot: fakeBot,
+    telegramChatId: 12345
+  });
+
+  assert.ok(result.obsidianPath);
+  assert.strictEqual(result.telegramSent, 0);
+
+  fs.rmSync(vault, { recursive: true, force: true });
+  delete process.env.OBSIDIAN_VAULT_PATH;
+});
+
+test('deliverBriefing skips Obsidian write when OBSIDIAN_VAULT_PATH unset', async () => {
+  delete process.env.OBSIDIAN_VAULT_PATH;
+
+  const reflectionId3 = db.addReflection({
+    userId: uid,
+    windowStart: 'a', windowEnd: 'b',
+    briefingMd: 'no vault test',
+    actionCount: 0
+  });
+  const refl = db.getLatestReflection({ userId: uid });
+
+  const fakeBot = {
+    sendMessage: async () => ({ message_id: 1 })
+  };
+
+  const result = await reflection.deliverBriefing({
+    reflection: refl,
+    telegramBot: fakeBot,
+    telegramChatId: 12345
+  });
+
+  assert.strictEqual(result.obsidianPath, null);
+  assert.strictEqual(result.telegramSent, 1);
+});
