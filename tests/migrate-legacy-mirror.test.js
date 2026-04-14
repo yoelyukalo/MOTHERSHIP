@@ -9,6 +9,10 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 const db = require('../src/database');
 const ve = require('../src/memory/vector-engine');
 const migrate = require('../src/migrate-legacy-mirror');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
+
+let testUserId;
 
 test('migrate-legacy-mirror — converts JSON blob into rows', async (t) => {
   await db.init();
@@ -16,6 +20,9 @@ test('migrate-legacy-mirror — converts JSON blob into rows', async (t) => {
   ve._setClient({
     embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.1) }] }) }
   });
+
+  await authRoles.seedOnce(db);
+  testUserId = await users.createUser({ email: 't@x', password: 'p' });
 
   db.setConfig('quantum_mirror', JSON.stringify({
     mental_models: [
@@ -32,15 +39,15 @@ test('migrate-legacy-mirror — converts JSON blob into rows', async (t) => {
     resonance_log: []
   }));
 
-  const count = await migrate.runIfNeeded();
+  const count = await migrate.runIfNeeded({ userId: testUserId });
   assert.ok(count > 0);
 
-  const models = db.getMirrorEntries({ category: 'mental_models' });
+  const models = db.getMirrorEntries({ category: 'mental_models', userId: testUserId });
   assert.ok(models.length >= 1);
   assert.ok(models[0].content.includes('First Principles'));
 });
 
 test('migrate-legacy-mirror — no-op if already migrated', async () => {
-  const count = await migrate.runIfNeeded();
+  const count = await migrate.runIfNeeded({ userId: testUserId });
   assert.strictEqual(count, 0);
 });

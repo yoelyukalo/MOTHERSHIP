@@ -8,6 +8,8 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 
 const db = require('../../src/database');
 const ve = require('../../src/memory/vector-engine');
+const users = require('../../src/auth/users');
+const authRoles = require('../../src/auth/roles');
 
 // Fake embedder: maps a few keywords to deterministic 4-dim vectors for
 // easy top-k assertions.
@@ -29,9 +31,14 @@ const fakeClient = {
   }
 };
 
+let testUserId;
+
 test('vector-engine — store & retrieve mirror entries by similarity', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
+
+  await authRoles.seedOnce(db);
+  testUserId = await users.createUser({ email: 't@x', password: 'p' });
 
   ve._setClient(fakeClient);
 
@@ -40,24 +47,27 @@ test('vector-engine — store & retrieve mirror entries by similarity', async (t
     content: 'rust is fast',
     confidence: 0.9,
     source_type: 'conversation',
-    source_id: 'm1'
+    source_id: 'm1',
+    userId: testUserId
   });
   await ve.storeMirrorEntry({
     category: 'preferences',
     content: 'go is pragmatic',
     confidence: 0.8,
     source_type: 'conversation',
-    source_id: 'm2'
+    source_id: 'm2',
+    userId: testUserId
   });
   await ve.storeMirrorEntry({
     category: 'preferences',
     content: 'python is flexible',
     confidence: 0.7,
     source_type: 'conversation',
-    source_id: 'm3'
+    source_id: 'm3',
+    userId: testUserId
   });
 
-  const results = await ve.searchMirror('query: systems languages', { topK: 2 });
+  const results = await ve.searchMirror('query: systems languages', { topK: 2, userId: testUserId });
   assert.strictEqual(results.length, 2);
   assert.strictEqual(results[0].content, 'rust is fast');
   assert.strictEqual(results[1].content, 'go is pragmatic');
@@ -69,16 +79,18 @@ test('vector-engine — store & retrieve wiki entries by similarity', async () =
     topic: 'Rust',
     summary: 'rust is fast',
     source_ids: ['msg-a'],
-    tags: ['language']
+    tags: ['language'],
+    userId: testUserId
   });
   await ve.storeWikiEntry({
     topic: 'Go',
     summary: 'go is pragmatic',
     source_ids: ['msg-b'],
-    tags: ['language']
+    tags: ['language'],
+    userId: testUserId
   });
 
-  const results = await ve.searchWiki('query: systems languages', { topK: 1 });
+  const results = await ve.searchWiki('query: systems languages', { topK: 1, userId: testUserId });
   assert.strictEqual(results.length, 1);
   assert.strictEqual(results[0].topic, 'Rust');
 });

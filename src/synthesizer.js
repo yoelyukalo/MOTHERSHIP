@@ -30,8 +30,8 @@ function parseJsonFromText(text) {
   }
 }
 
-function mirrorSnapshotForPrompt() {
-  const rows = db.getMirrorEntries({ activeOnly: true, limit: 50 });
+function mirrorSnapshotForPrompt(userId) {
+  const rows = db.getMirrorEntries({ activeOnly: true, limit: 50, userId });
   if (!rows.length) return '(no profile yet)';
   const byCat = {};
   for (const r of rows) (byCat[r.category] ||= []).push(r.content);
@@ -40,9 +40,10 @@ function mirrorSnapshotForPrompt() {
     .join('\n');
 }
 
-async function synthesizeFromContent({ content, sourceId }) {
-  const existingTopics = db.getAllWikiEntries().map(r => r.topic);
-  const mirrorSnapshot = mirrorSnapshotForPrompt();
+async function synthesizeFromContent({ content, sourceId, userId }) {
+  if (!userId) throw new Error('synthesizeFromContent: userId required');
+  const existingTopics = db.getAllWikiEntries({ userId }).map(r => r.topic);
+  const mirrorSnapshot = mirrorSnapshotForPrompt(userId);
   const prompt = WIKI_SYNTHESIS({ existingTopics, mirrorSnapshot, content });
 
   const c = getClient();
@@ -62,7 +63,7 @@ async function synthesizeFromContent({ content, sourceId }) {
 
   let created = 0, merged = 0;
   for (const topic of parsed.topics || []) {
-    const existing = db.getWikiEntries({ topic: topic.topic })[0];
+    const existing = db.getWikiEntries({ topic: topic.topic, userId })[0];
     if (existing) {
       const mergedSources = Array.from(new Set([...(existing.source_ids || []), sourceId]));
       const mergedTags = Array.from(new Set([...(existing.tags || []), ...(topic.tags || [])]));
@@ -78,7 +79,8 @@ async function synthesizeFromContent({ content, sourceId }) {
         topic: topic.topic,
         summary: topic.summary,
         source_ids: [sourceId],
-        tags: topic.tags || []
+        tags: topic.tags || [],
+        userId
       });
       created++;
     }

@@ -9,6 +9,8 @@ process.env.MOTHERSHIP_DB_PATH = tmpDb;
 const db = require('../../src/database');
 const ve = require('../../src/memory/vector-engine');
 const retriever = require('../../src/memory/retriever');
+const users = require('../../src/auth/users');
+const authRoles = require('../../src/auth/roles');
 
 const fakeEmb = {
   'thinks in systems': new Float32Array([1, 0, 0]),
@@ -27,23 +29,31 @@ test('retriever — returns block with mirror + wiki sections', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
 
+  await authRoles.seedOnce(db);
+  const testUserId = await users.createUser({ email: 't@x', password: 'p' });
+
   ve._setClient(fakeClient);
 
   await ve.storeMirrorEntry({
     category: 'mental_models', content: 'thinks in systems',
-    confidence: 0.9, source_type: 'conversation', source_id: 'x'
+    confidence: 0.9, source_type: 'conversation', source_id: 'x',
+    userId: testUserId
   });
   await ve.storeMirrorEntry({
     category: 'mental_models', content: 'likes first principles',
-    confidence: 0.85, source_type: 'conversation', source_id: 'y'
+    confidence: 0.85, source_type: 'conversation', source_id: 'y',
+    userId: testUserId
   });
   await ve.storeWikiEntry({
     topic: 'RAG',
     summary: 'rag is retrieval augmented generation',
-    source_ids: ['z'], tags: ['ai']
+    source_ids: ['z'], tags: ['ai'],
+    userId: testUserId
   });
 
-  const block = await retriever.buildContextBlock('how do i build a rag pipeline', { mirrorTopK: 2, wikiTopK: 1 });
+  const block = await retriever.buildContextBlock('how do i build a rag pipeline', {
+    mirrorTopK: 2, wikiTopK: 1, userId: testUserId
+  });
 
   assert.ok(block.includes('## Mirror'));
   assert.ok(block.includes('## Wiki'));

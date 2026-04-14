@@ -9,7 +9,8 @@ const ve = require('./memory/vector-engine');
 
 const FLAG = 'mirror_migrated_to_rows';
 
-async function runIfNeeded() {
+async function runIfNeeded({ userId } = {}) {
+  if (!userId) throw new Error('migrate-legacy-mirror: userId required');
   if (db.getConfig(FLAG) === '1') return 0;
 
   const raw = db.getConfig('quantum_mirror');
@@ -34,7 +35,8 @@ async function runIfNeeded() {
       content: `${m.name}: ${m.description}`,
       confidence: m.strength ?? 0.7,
       source_type: 'migration',
-      source_id: `legacy:${m.id || m.name}`
+      source_id: `legacy:${m.id || m.name}`,
+      userId
     });
     count++;
   }
@@ -46,7 +48,8 @@ async function runIfNeeded() {
       content: `Learning style is primarily ${ls.primary}.`,
       confidence: 0.7,
       source_type: 'migration',
-      source_id: 'legacy:learning_style'
+      source_id: 'legacy:learning_style',
+      userId
     });
     count++;
 
@@ -56,7 +59,8 @@ async function runIfNeeded() {
         content: `Prefers to learn ${pref.mode.toLowerCase()} — ${pref.note}`,
         confidence: pref.score ?? 0.7,
         source_type: 'migration',
-        source_id: `legacy:pref:${pref.mode}`
+        source_id: `legacy:pref:${pref.mode}`,
+        userId
       });
       count++;
     }
@@ -67,7 +71,8 @@ async function runIfNeeded() {
         content: `Dislikes: ${avoid}`,
         confidence: 0.6,
         source_type: 'migration',
-        source_id: `legacy:avoid:${avoid}`
+        source_id: `legacy:avoid:${avoid}`,
+        userId
       });
       count++;
     }
@@ -79,7 +84,8 @@ async function runIfNeeded() {
       content: `${k.topic} — ${k.level}. ${k.notes || ''}`.trim(),
       confidence: 0.75,
       source_type: 'migration',
-      source_id: `legacy:kg:${k.id || k.topic}`
+      source_id: `legacy:kg:${k.id || k.topic}`,
+      userId
     });
     count++;
   }

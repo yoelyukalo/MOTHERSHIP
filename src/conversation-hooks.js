@@ -53,7 +53,7 @@ async function postIngestion({ content, sourceId, userId }) {
   if (!userId) throw new Error('postIngestion: userId required');
   if (!content || content.length < MIN_TURN_LENGTH) return;
   try {
-    await syn.synthesizeFromContent({ content, sourceId });
+    await syn.synthesizeFromContent({ content, sourceId, userId });
   } catch (err) {
     db.log('error', 'hooks.postIngestion', err.message);
   }

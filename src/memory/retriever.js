@@ -7,10 +7,11 @@
 
 const ve = require('./vector-engine');
 
-async function retrieve(query, { mirrorTopK = 5, wikiTopK = 5 } = {}) {
+async function retrieve(query, { mirrorTopK = 5, wikiTopK = 5, userId = null } = {}) {
+  if (!userId) throw new Error('retrieve: userId required');
   const [mirror, wiki] = await Promise.all([
-    ve.searchMirror(query, { topK: mirrorTopK }),
-    ve.searchWiki(query, { topK: wikiTopK })
+    ve.searchMirror(query, { topK: mirrorTopK, userId }),
+    ve.searchWiki(query, { topK: wikiTopK, userId })
   ]);
   return { mirror, wiki };
 }
@@ -43,6 +44,7 @@ function formatWikiSection(entries) {
 }
 
 async function buildContextBlock(query, opts = {}) {
+  if (!opts.userId) throw new Error('buildContextBlock: userId required');
   const { mirror, wiki } = await retrieve(query, opts);
   return [formatMirrorSection(mirror), formatWikiSection(wiki)].filter(Boolean).join('\n\n');
 }

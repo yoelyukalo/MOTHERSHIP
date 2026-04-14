@@ -11,21 +11,28 @@ delete process.env.OBSIDIAN_VAULT_PATH;
 const db = require('../src/database');
 const ve = require('../src/memory/vector-engine');
 const hc = require('../src/health-check');
+const users = require('../src/auth/users');
+const authRoles = require('../src/auth/roles');
 
 test('health-check — decays confidence of stale entries', async (t) => {
   await db.init();
   t.after(() => { try { fs.unlinkSync(tmpDb); } catch {} });
+
+  await authRoles.seedOnce(db);
+  const testUserId = await users.createUser({ email: 't@x', password: 'p' });
+
   ve._setClient({
     embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.1) }] }) }
   });
 
   await ve.storeMirrorEntry({
     category: 'preferences', content: 'ancient belief',
-    confidence: 0.8, source_type: 'migration', source_id: 'x'
+    confidence: 0.8, source_type: 'migration', source_id: 'x',
+    userId: testUserId
   });
 
   // Get the inserted row id
-  const inserted = db.getMirrorEntries({ category: 'preferences', activeOnly: true });
+  const inserted = db.getMirrorEntries({ category: 'preferences', activeOnly: true, userId: testUserId });
   assert.strictEqual(inserted.length, 1);
   const id = inserted[0].id;
 
@@ -47,7 +54,7 @@ test('health-check — decays confidence of stale entries', async (t) => {
   const r = await hc.runNow();
   assert.ok(r.decayed >= 1);
   // After decay the row's confidence should have dropped from 0.8 to 0.7 (default DECAY_STEP 0.1)
-  const after = db.getMirrorEntries({ activeOnly: true }).find(x => x.id === id);
+  const after = db.getMirrorEntries({ activeOnly: true, userId: testUserId }).find(x => x.id === id);
   assert.ok(after);
   assert.ok(after.confidence < 0.8);
 });

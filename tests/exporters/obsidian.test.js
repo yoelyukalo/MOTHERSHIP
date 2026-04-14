@@ -12,6 +12,8 @@ process.env.OBSIDIAN_VAULT_PATH = tmpVault;
 const db = require('../../src/database');
 const ve = require('../../src/memory/vector-engine');
 const obsidian = require('../../src/exporters/obsidian');
+const users = require('../../src/auth/users');
+const authRoles = require('../../src/auth/roles');
 
 test('obsidian exporter — writes mirror + wiki markdown with frontmatter', async (t) => {
   await db.init();
@@ -19,18 +21,24 @@ test('obsidian exporter — writes mirror + wiki markdown with frontmatter', asy
     try { fs.unlinkSync(tmpDb); } catch {}
     try { fs.rmSync(tmpVault, { recursive: true, force: true }); } catch {}
   });
+
+  await authRoles.seedOnce(db);
+  const testUserId = await users.createUser({ email: 't@x', password: 'p' });
+
   ve._setClient({
     embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.3) }] }) }
   });
 
   await ve.storeMirrorEntry({
     category: 'mental_models', content: 'Thinks in systems',
-    confidence: 0.9, source_type: 'conversation', source_id: 'x'
+    confidence: 0.9, source_type: 'conversation', source_id: 'x',
+    userId: testUserId
   });
   await ve.storeWikiEntry({
     topic: 'RAG',
     summary: 'Retrieval augmented generation pairs vector search with LLMs.',
-    source_ids: ['msg-a'], tags: ['ai', 'architecture']
+    source_ids: ['msg-a'], tags: ['ai', 'architecture'],
+    userId: testUserId
   });
 
   const report = await obsidian.exportAll();

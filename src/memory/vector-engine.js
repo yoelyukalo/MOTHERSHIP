@@ -16,6 +16,7 @@ function clientOpts() {
 }
 
 async function storeMirrorEntry(entry) {
+  if (!entry.userId) throw new Error('storeMirrorEntry: userId required');
   const vec = await emb.generateEmbedding(entry.content, clientOpts());
   const id = db.addMirrorEntry({
     ...entry,
@@ -33,6 +34,7 @@ async function supersedeMirrorEntry(oldId, newEntry) {
 }
 
 async function storeWikiEntry(entry) {
+  if (!entry.userId) throw new Error('storeWikiEntry: userId required');
   const vec = await emb.generateEmbedding(`${entry.topic}: ${entry.summary}`, clientOpts());
   const id = db.addWikiEntry({
     ...entry,
@@ -51,18 +53,20 @@ async function updateWikiEntry(id, updates) {
   db.updateWikiEntry(id, { ...updates, embedding: embeddingBuf });
 }
 
-async function searchMirror(query, { topK = 5, category = null } = {}) {
+async function searchMirror(query, { topK = 5, category = null, userId = null } = {}) {
+  if (!userId) throw new Error('searchMirror: userId required');
   const qVec = await emb.generateEmbedding(query, clientOpts());
-  const rows = db.getMirrorEntries({ category, activeOnly: true, limit: 5000 });
+  const rows = db.getMirrorEntries({ category, activeOnly: true, limit: 5000, userId });
   const candidates = rows
     .filter(r => r.embedding)
     .map(r => ({ ...r, vec: emb.fromBuffer(r.embedding) }));
   return emb.findRelevant(qVec, candidates, topK);
 }
 
-async function searchWiki(query, { topK = 5 } = {}) {
+async function searchWiki(query, { topK = 5, userId = null } = {}) {
+  if (!userId) throw new Error('searchWiki: userId required');
   const qVec = await emb.generateEmbedding(query, clientOpts());
-  const rows = db.getAllWikiEntries();
+  const rows = db.getAllWikiEntries({ userId });
   const candidates = rows
     .filter(r => r.embedding)
     .map(r => ({ ...r, vec: emb.fromBuffer(r.embedding) }));
