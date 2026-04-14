@@ -11,12 +11,14 @@ const db = require('../src/database');
 const users = require('../src/auth/users');
 const authRoles = require('../src/auth/roles');
 const actionLogger = require('../src/action-logger');
+const registry = require('../src/prompts/registry');
 
 let uid;
 
 before(async () => {
   await db.init();
   await authRoles.seedOnce(db);
+  registry.seedFromHardcoded();
   uid = await users.createUser({ email: 'al@x', password: 'p' });
 });
 
@@ -112,4 +114,110 @@ test('resolveAction links commitment to resolving win', () => {
 
 test('resolveAction swallows errors on bad ids', () => {
   assert.doesNotThrow(() => actionLogger.resolveAction('nope', 'also-nope'));
+});
+
+const extractor = require('../src/extractors/action-extractor');
+
+test('logActionFromTurn auto-logs high-confidence candidates, queues borderline, drops low', async () => {
+  extractor._setClient({
+    messages: { create: async () => ({
+      content: [{ type: 'text', text: JSON.stringify({
+        candidates: [
+          { kind: 'commitment', subject: 'ship v2 high conf', data: { due_at: '2026-04-20' }, confidence: 0.92 },
+          { kind: 'state', subject: 'tired borderline', data: { dimension: 'energy' }, confidence: 0.6 },
+          { kind: 'preference', subject: 'weak hint', data: {}, confidence: 0.3 }
+        ]
+      }) }]
+    }) }
+  });
+
+  const result = await actionLogger.logActionFromTurn({
+    userText: "I'll ship v2 this week and I'm tired today",
+    assistantText: 'got it',
+    sourceId: 'msg-from-turn-test',
+    userId: uid
+  });
+
+  assert.strictEqual(result.autoLogged, 1);
+  assert.strictEqual(result.queued, 1);
+  assert.strictEqual(result.dropped, 1);
+
+  const active = db.getActions({ userId: uid, kind: 'commitment', status: 'active' });
+  assert.ok(active.some(a => a.subject === 'ship v2 high conf'));
+
+  const pending = db.getActions({ userId: uid, kind: 'state', status: 'pending_confirm' });
+  assert.ok(pending.some(a => a.subject === 'tired borderline'));
+
+  // Weak hint should NOT appear anywhere
+  const weak = db.getActions({ userId: uid, kind: 'preference' });
+  assert.ok(!weak.some(a => a.subject === 'weak hint'));
+});
+
+test('logActionFromTurn tolerates extractor returning empty candidates', async () => {
+  extractor._setClient({
+    messages: { create: async () => ({
+      content: [{ type: 'text', text: JSON.stringify({ candidates: [] }) }]
+    }) }
+  });
+  const result = await actionLogger.logActionFromTurn({
+    userText: 'long enough message to pass the guard but no actionable content',
+    assistantText: 'ok',
+    sourceId: 'empty-test',
+    userId: uid
+  });
+  assert.strictEqual(result.autoLogged, 0);
+  assert.strictEqual(result.queued, 0);
+  assert.strictEqual(result.dropped, 0);
+});
+
+test('logActionFromTurn tolerates extractor failure (never throws)', async () => {
+  extractor._setClient({
+    messages: { create: async () => { throw new Error('api down'); } }
+  });
+  let result;
+  await assert.doesNotReject(async () => {
+    result = await actionLogger.logActionFromTurn({
+      userText: 'long enough text to trigger extraction attempt',
+      assistantText: 'ok',
+      sourceId: 'fail-test',
+      userId: uid
+    });
+  });
+  assert.strictEqual(result.autoLogged, 0);
+  assert.strictEqual(result.queued, 0);
+});
+
+test('logActionFromTurn returns zero counts when userId is missing', async () => {
+  const result = await actionLogger.logActionFromTurn({
+    userText: 'long text',
+    assistantText: 'ok',
+    sourceId: 'no-user'
+    // userId intentionally missing
+  });
+  assert.strictEqual(result.autoLogged, 0);
+  assert.strictEqual(result.queued, 0);
+  assert.strictEqual(result.dropped, 0);
+});
+
+test('logActionFromTurn drops candidates missing kind or subject', async () => {
+  extractor._setClient({
+    messages: { create: async () => ({
+      content: [{ type: 'text', text: JSON.stringify({
+        candidates: [
+          { kind: 'win', subject: 'valid one', confidence: 0.9 },
+          { subject: 'missing kind', confidence: 0.9 },
+          { kind: 'stumble', confidence: 0.9 },
+          { kind: 'commitment', subject: 'another valid', data: {}, confidence: 0.85 }
+        ]
+      }) }]
+    }) }
+  });
+  const result = await actionLogger.logActionFromTurn({
+    userText: 'long enough text to trigger extraction attempt',
+    assistantText: 'ok',
+    sourceId: 'malformed-test',
+    userId: uid
+  });
+  assert.strictEqual(result.autoLogged, 2); // only the two valid ones
+  assert.strictEqual(result.dropped, 2);
 });

@@ -53,8 +53,70 @@ function resolveAction(commitmentId, resolvingActionId) {
   }
 }
 
+const AUTOLOG_CONFIDENCE = parseFloat(process.env.ACTION_AUTOLOG_CONFIDENCE || '0.75');
+const QUEUE_CONFIDENCE = parseFloat(process.env.ACTION_QUEUE_CONFIDENCE || '0.5');
+
+async function logActionFromTurn({ userText, assistantText, sourceId, userId }) {
+  if (!userId) return { autoLogged: 0, queued: 0, dropped: 0 };
+
+  // Lazy require to keep the dependency direction one-way:
+  // extractor → action-logger is NOT allowed; action-logger → extractor IS.
+  const extractor = require('./extractors/action-extractor');
+
+  let result;
+  try {
+    result = await extractor.extract({ userText, assistantText, userId });
+  } catch (err) {
+    try { db.log('error', 'action-logger', `extractor failed: ${err.message}`); } catch {}
+    return { autoLogged: 0, queued: 0, dropped: 0 };
+  }
+
+  const candidates = result?.candidates || [];
+  let autoLogged = 0;
+  let queued = 0;
+  let dropped = 0;
+
+  for (const cand of candidates) {
+    if (!cand || !cand.kind || !cand.subject) {
+      dropped++;
+      continue;
+    }
+    const conf = typeof cand.confidence === 'number' ? cand.confidence : 0;
+    if (conf >= AUTOLOG_CONFIDENCE) {
+      logAction({
+        kind: cand.kind,
+        subject: cand.subject,
+        data: cand.data || {},
+        confidence: conf,
+        status: 'active',
+        sourceType: 'conversation',
+        sourceId,
+        userId
+      });
+      autoLogged++;
+    } else if (conf >= QUEUE_CONFIDENCE) {
+      logAction({
+        kind: cand.kind,
+        subject: cand.subject,
+        data: cand.data || {},
+        confidence: conf,
+        status: 'pending_confirm',
+        sourceType: 'conversation',
+        sourceId,
+        userId
+      });
+      queued++;
+    } else {
+      dropped++;
+    }
+  }
+
+  return { autoLogged, queued, dropped };
+}
+
 module.exports = {
   logAction,
+  logActionFromTurn,
   confirmPendingAction,
   rejectPendingAction,
   resolveAction
