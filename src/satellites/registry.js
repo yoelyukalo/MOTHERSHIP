@@ -255,6 +255,53 @@ async function createInstance({
   }
 }
 
+// --- Lifecycle ---
+//
+// These functions sit between the registry row and the loader's in-memory
+// map. They use a LAZY `require('./loader')` to avoid the circular import
+// that would occur if loader.js (which requires this module at the top)
+// tried to require this one at the top too.
+
+async function archive(slug) {
+  const loader = require('./loader');
+  updateStatus(slug, 'archived');
+  await loader.unregister(slug);
+}
+
+async function unarchive(slug) {
+  const loader = require('./loader');
+  updateStatus(slug, 'active');
+  await loader.register(slug);
+}
+
+async function transfer(slug, { visibility, owner } = {}) {
+  const loader = require('./loader');
+  const raw = db._raw();
+  const patches = ["status = 'transferred'", "transferred_at = datetime('now')"];
+  const params = [];
+  if (visibility) { patches.push('visibility = ?'); params.push(visibility); }
+  if (owner) { patches.push('owner = ?'); params.push(owner); }
+  params.push(slug);
+  raw.run(`UPDATE satellites SET ${patches.join(', ')} WHERE slug = ?`, params);
+  db.save();
+  await loader.unregister(slug);
+}
+
+async function setVisibility(slug, visibility) {
+  if (!['full', 'limited', 'none'].includes(visibility)) {
+    throw new Error(`invalid visibility: ${visibility}`);
+  }
+  const loader = require('./loader');
+  updateVisibility(slug, visibility);
+
+  // Re-wrap the in-memory handle if loaded. Simplest correct path: unregister
+  // then register, which rebuilds the wrapper against the new visibility value.
+  if (loader.get(slug)) {
+    await loader.unregister(slug);
+    await loader.register(slug);
+  }
+}
+
 module.exports = {
   validateSlug,
   satellitesDir,
@@ -270,5 +317,9 @@ module.exports = {
   instancePaths,
   ensureFolderTree,
   consoleLogger,
-  BASELINE_SCHEMA
+  BASELINE_SCHEMA,
+  archive,
+  unarchive,
+  transfer,
+  setVisibility
 };
