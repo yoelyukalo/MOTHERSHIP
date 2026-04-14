@@ -11,13 +11,15 @@
 
 ## 1. Overview
 
-Phase 6 sub-project #2 adds first-class authentication and hybrid role-based access control to Mothership. It shapes the system for a **public-domain deployment** with heterogeneous identities: Yoel as `mothership_admin`, staff members with scoped access to specific satellites, clients who own a single transferred satellite, and machine identities (Claude Code, Telegram bots, automation scripts) authenticated by bearer tokens.
+Phase 6 sub-project #2 adds first-class authentication, hybrid role-based access control, **and per-user data scoping** to Mothership. It shapes the system for a **public-domain deployment** with heterogeneous identities: Yoel as `mothership_admin`, staff members with scoped access to specific satellites, clients who own a single transferred satellite, and machine identities (Claude Code, Telegram bots, automation scripts) authenticated by bearer tokens.
 
 Humans authenticate via password + server-side session cookies. Machines authenticate via opaque bearer tokens in `Authorization: Bearer <token>`. Both credential types resolve to the same `req.user` object downstream, so every permission check is uniform regardless of caller.
 
 Permissions follow hybrid RBAC: **system roles** grant global capabilities (e.g., `mothership_admin`, `user_manager`), **satellite roles** grant per-satellite capabilities (e.g., `satellite_editor` on `texas-auto-center`). Users acquire roles directly or through **group** membership. A unified `role_assignments` table uses `principal_type` + `principal_id` + nullable `satellite_id` to discriminate every combination without table explosion.
 
-This sub-project ships zero UI. The dashboard login/management screens are #3's responsibility. #2 provides the REST primitives — the `/api/auth/*`, `/api/users/*`, `/api/invitations/*`, `/api/role-assignments/*`, and `/api/groups/*` endpoint surface — and the RBAC enforcement middleware that retroactively gates every existing route.
+**Per-user data scoping** is a core design tenet: every user gets their own Quantum Mirror, their own Wiki, and their own chat history with Mothership. The Mothership-core tables `messages`, `mirror_entries`, and `wiki_entries` each gain a `user_id` column; reads and writes on those tables filter by the authenticated caller's id. A one-time migration backfills existing rows with the first admin's user_id so Yoel's accumulated Mirror/Wiki/message history carries forward without interruption. System-wide reads (seeing another user's Mirror, for example) are restricted to the separate `observer` role, which is distinct from the baseline `viewer` role that every authenticated user receives automatically. Mothership infrastructure state — satellites, drafts, logs, config — remains shared and is governed by satellite-scoped roles, not per-user scoping.
+
+This sub-project ships zero UI. The dashboard login/management screens are #3's responsibility. #2 provides the REST primitives — the `/api/auth/*`, `/api/users/*`, `/api/invitations/*`, `/api/role-assignments/*`, and `/api/groups/*` endpoint surface — the RBAC enforcement middleware that retroactively gates every existing route, and the per-user data partitioning that makes multi-user Mothership meaningful.
 
 ---
 
@@ -53,6 +55,9 @@ Explicitly out of scope. Deferred to keep #2 tight.
 | **Group** | A named collection of users. Assigning a role to a group grants that role to all current and future members. |
 | **Invitation** | A one-time URL carrying a set of role grants. The invitee claims it by choosing a password, which creates their user account and applies the grants atomically. |
 | **Bootstrap** | The first-run action that seeds the initial `mothership_admin` via `scripts/create-admin.js`. Refuses to run if any user already exists (without `--force`). |
+| **Scoped table** | A Mothership-core table with a `user_id` column. Every row belongs to exactly one user. Reads filter by caller id; writes stamp it. In #2: `messages`, `mirror_entries`, `wiki_entries`. |
+| **Shared table** | A Mothership-core table without a `user_id` column. Rows belong to Mothership-infrastructure as a whole, not to a specific user. In #2: `satellites`, `satellite_drafts`, `logs`, `config`, and all auth tables. |
+| **System owner** | The user_id used as the default owner for Mothership pipelines that have no authenticated caller — the Telegram bot, the file watcher inbox, and any automation that runs outside a request. Resolves to the first `mothership_admin` (Yoel). |
 
 ---
 
@@ -284,6 +289,34 @@ CREATE INDEX IF NOT EXISTS idx_invitations_expires ON invitations(expires_at);
 - Single-use: `claimed_at IS NOT NULL` means no further claims accepted
 - The claim flow creates the user AND applies `role_grants_json` AND marks `claimed_at` in a single application-level transaction (best-effort, with rollback-on-partial-failure similar to `registry.createInstance`)
 
+### 5.11 Per-user scope additions to existing tables
+
+Three existing Mothership-core tables gain a `user_id` column so every row belongs to exactly one user. Reads filter by the caller's id; writes stamp it.
+
+```sql
+-- messages
+ALTER TABLE messages ADD COLUMN user_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id);
+
+-- mirror_entries
+ALTER TABLE mirror_entries ADD COLUMN user_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_mirror_entries_user ON mirror_entries(user_id);
+
+-- wiki_entries
+ALTER TABLE wiki_entries ADD COLUMN user_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_wiki_entries_user ON wiki_entries(user_id);
+```
+
+Notes on the migration:
+
+- **The column is added as nullable** so the ALTER statements succeed on an existing populated DB without needing a default value. Application code treats NULL as "not yet migrated" and refuses to return such rows to normal users — only `mothership_admin` can see rows with `user_id IS NULL`, and only for the purpose of assigning them.
+- **Backfill runs inside `auth.init()`** after the bootstrap admin exists. The backfill performs `UPDATE messages SET user_id = <admin_id> WHERE user_id IS NULL`, similarly for the other two tables. Idempotent — once all rows have a user_id the UPDATE is a no-op.
+- **The migration is gated on the first admin existing.** Before the first `scripts/create-admin.js` run, no user_id is known, so the backfill is skipped. `auth.init()` logs a warning and continues. Once the admin exists, the next boot runs the backfill exactly once.
+- **After the backfill completes**, a sentinel row is written to `config`: `SET meta.per_user_backfill_done = 'true'`. On subsequent boots, the backfill function short-circuits on this flag.
+- **Application-level constraint:** every INSERT into `messages`, `mirror_entries`, `wiki_entries` must supply a non-null `user_id`. The existing `db.addMessage()` and `ve.storeMirrorEntry()` APIs gain a required `user_id` parameter. Callers that don't have an authenticated user (Telegram bot, file watcher, health check synthesis) pass the "system owner" id — resolved via `getSystemOwnerId()` which returns the oldest `mothership_admin`.
+
+**No ALTER on `logs`, `config`, `satellites`, `satellite_drafts`, `sessions`, `api_keys`, `role_assignments`, `groups`, `group_memberships`, `invitations`, `roles`, `permissions`, `role_permissions`.** These are either infrastructure (shared by everyone) or already have their own ownership model (auth tables reference users explicitly via `user_id` where appropriate, but that's a FK, not a scoping column).
+
 ---
 
 ## 6. Seed data — roles, permissions, role_permissions
@@ -308,14 +341,23 @@ const PERMISSIONS = [
   { name: 'group.edit',           desc: 'Edit group membership and metadata' },
   { name: 'group.delete',         desc: 'Delete groups' },
 
-  // Mothership-wide reads (system-level)
-  { name: 'mirror.read',          desc: 'Read Quantum Mirror entries' },
-  { name: 'wiki.read',            desc: 'Read Wiki entries' },
-  { name: 'message.read',         desc: 'Read ingested messages' },
+  // Per-user self-scoped data (baseline — granted to `viewer` and implicitly
+  // scoped to the caller's own user_id)
+  { name: 'mirror.read',          desc: 'Read your own Quantum Mirror entries' },
+  { name: 'wiki.read',            desc: 'Read your own Wiki entries' },
+  { name: 'message.read',         desc: 'Read your own ingested messages' },
+  { name: 'chat.send',            desc: 'Send chat turns to Mothership via /api/chat' },
+
+  // Cross-user reads (admin-level — granted to `observer` and inherited by
+  // `mothership_admin`. Holders can see ANY user's Mirror/Wiki/messages.)
+  { name: 'mirror.read_any',      desc: "Read any user's Quantum Mirror entries" },
+  { name: 'wiki.read_any',        desc: "Read any user's Wiki entries" },
+  { name: 'message.read_any',     desc: "Read any user's messages" },
+
+  // Mothership-wide reads (operator-level)
   { name: 'log.read',             desc: 'Read system logs' },
   { name: 'export.run',           desc: 'Run export jobs' },
   { name: 'briefing.run',         desc: 'Run synthesis briefings' },
-  { name: 'chat.send',            desc: 'Send chat turns to Mothership via /api/chat' },
 
   // Drafts (system-level — drafts are Mothership-wide, not per-satellite)
   { name: 'draft.create',         desc: 'Create satellite drafts' },
@@ -355,10 +397,28 @@ const ROLES = [
       'group.create', 'group.edit', 'group.delete'
     ] },
 
-  { name: 'observer', kind: 'system', desc: 'Read-only across Mothership',
+  // Viewer is the baseline role every authenticated user receives on account
+  // creation. It grants access to the user's OWN scoped data (their own
+  // Mirror, Wiki, messages, chat with Mothership) plus the ability to list
+  // satellites and read drafts. Nothing cross-user. Every normal Mothership
+  // user operates as a `viewer` with zero or more satellite-role grants on
+  // top.
+  { name: 'viewer', kind: 'system', desc: 'Baseline role for authenticated users — access to own scope',
     permissions: [
-      'mirror.read', 'wiki.read', 'message.read', 'log.read',
-      'draft.read', 'satellite.list'
+      'chat.send',
+      'mirror.read',    // self-scoped; filtered by user_id = caller
+      'wiki.read',      // self-scoped
+      'message.read',   // self-scoped
+      'draft.read',
+      'satellite.list'
+    ] },
+
+  // Observer is the ADMIN read role — it can see across all users' Mothership
+  // data. Distinct from `viewer`, which is self-scoped. Use sparingly.
+  { name: 'observer', kind: 'system', desc: 'Admin read-only across all users',
+    permissions: [
+      'mirror.read_any', 'wiki.read_any', 'message.read_any',
+      'log.read', 'draft.read', 'satellite.list'
     ] },
 
   { name: 'draft_author', kind: 'system', desc: 'Creates and edits satellite drafts',
@@ -401,6 +461,16 @@ The `src/auth/roles.js` module exports `seedOnce(db)` which:
 2. `INSERT OR IGNORE`s every role in `ROLES`.
 3. For each role, `INSERT OR IGNORE`s the role_permissions rows linking the role to its permission list. `mothership_admin`'s `'*'` sentinel means no rows are inserted — the resolver handles this role via an explicit bypass.
 4. Called from `auth.init()`, which runs after `db.init()` during boot.
+
+### 6.4 Auto-grant of `viewer` on user creation
+
+Every user creation path automatically grants the `viewer` system role. This is the difference between "a user account exists" and "a user can actually use Mothership":
+
+- `scripts/create-admin.js` — the bootstrap admin receives both `mothership_admin` AND `viewer`. The `mothership_admin` bypass would cover `viewer`'s permissions anyway, but the explicit grant keeps the model uniform and makes revoking `mothership_admin` safe (the admin downgrades to a normal user without losing access to their own Mirror).
+- `POST /api/users` (admin-created) — user gets `viewer` automatically unless `--skip-default-roles` is passed in the body.
+- `POST /api/auth/claim-invite` — user gets `viewer` + whatever role grants were listed in the invitation.
+
+The auto-grant is a single `role_assignments` row with `principal_type='user'`, `principal_id=<new user id>`, `role_id=<viewer role id>`, `satellite_id=NULL`. If the grant fails for any reason, user creation rolls back.
 
 ---
 
@@ -575,20 +645,28 @@ Every existing endpoint in `src/routes/api.js` gets gated. Grouped by permission
 - `GET /api/status`
 - `POST /api/auth/login`, `POST /api/auth/logout`, `POST /api/auth/claim-invite`
 
-### 10.2 Mothership-wide (system permissions)
+### 10.2 Per-user scoped endpoints (self-filtering)
+
+These endpoints return only the authenticated caller's own data. Middleware gate: `requireAuth({ permission: <self-scoped perm> })`. Handler-level filter: `WHERE user_id = req.user.id`. An admin user with `mirror.read_any` / `wiki.read_any` / `message.read_any` can override the filter via an explicit `?user_id=<other>` query param — the handler checks for that param and, if present, verifies the caller has the `_any` variant before honoring it.
+
+| Endpoint | Permission (baseline) | Override permission |
+|---|---|---|
+| `GET /api/messages`, `GET /api/messages/:id` | `message.read` | `message.read_any` via `?user_id=` |
+| `POST /api/messages` | `message.read` (writes to caller's scope) | n/a |
+| `POST /api/chat` | `chat.send` (stamps `req.user.id` into `messages.user_id` AND `metadata`) | n/a |
+| `GET /api/mirror`, `GET /api/mirror/models`, `GET /api/mirror/learning`, `GET /api/mirror/knowledge`, `GET /api/mirror/resonance`, `GET /api/mirror/entries` | `mirror.read` | `mirror.read_any` via `?user_id=` |
+| `POST /api/mirror/resonance` | `mirror.read` (writes to caller's scope) | n/a |
+| `GET /api/wiki/entries` | `wiki.read` | `wiki.read_any` via `?user_id=` |
+
+### 10.3 Mothership operator endpoints (system permissions, not user-scoped)
 
 | Endpoint | Permission |
 |---|---|
-| `GET /api/messages`, `GET /api/messages/:id` | `message.read` |
-| `POST /api/messages` | `message.read` (internal tool; admin-only) |
-| `POST /api/chat` | `chat.send` (stamps `req.user.id` into message metadata) |
 | `GET /api/logs` | `log.read` |
-| `GET /api/mirror`, `GET /api/mirror/models`, `GET /api/mirror/learning`, `GET /api/mirror/knowledge`, `GET /api/mirror/resonance`, `GET /api/mirror/entries`, `POST /api/mirror/resonance` | `mirror.read` |
-| `GET /api/wiki/entries` | `wiki.read` |
-| `POST /api/export` | `export.run` |
+| `POST /api/export` | `export.run` (exports the caller's own Mirror/Wiki; admins can pass `?user_id=`) |
 | `POST /api/briefing` | `briefing.run` |
 
-### 10.3 Satellite endpoints (satellite-scoped permissions, except where noted)
+### 10.4 Satellite endpoints (satellite-scoped permissions, except where noted)
 
 | Endpoint | Permission | Scope |
 |---|---|---|
@@ -602,7 +680,7 @@ Every existing endpoint in `src/routes/api.js` gets gated. Grouped by permission
 | `POST /api/satellites/:slug/directives` | `satellite.issue_directive` | `slug` |
 | `GET /api/satellites/:slug/directives` | `satellite.read_directives` | `slug` |
 
-### 10.4 Draft endpoints (system-scoped)
+### 10.5 Draft endpoints (system-scoped)
 
 | Endpoint | Permission |
 |---|---|
@@ -612,7 +690,7 @@ Every existing endpoint in `src/routes/api.js` gets gated. Grouped by permission
 | `POST /api/satellites/drafts/:slug/regenerate-brief` | `draft.regenerate_brief` |
 | `POST /api/satellites/drafts/:slug/status` | `draft.edit_status` |
 
-### 10.5 The `GET /api/satellites` filter
+### 10.6 The `GET /api/satellites` filter
 
 Unlike most endpoints, this does not 401 unauthenticated users past the `requireAnyAuth()` stage — instead, it returns the subset of satellites that the authenticated user has `satellite.read` permission for. Implementation:
 
@@ -625,6 +703,34 @@ router.get('/satellites', requireAnyAuth(), (req, res) => {
 ```
 
 A user with zero memberships gets `[]`. A user with `mothership_admin` gets everything. A staff member with `satellite_editor` on one satellite gets a one-element array.
+
+### 10.7 Per-user scoping changes to non-route modules
+
+The retrofit is not purely a routing concern — several Mothership modules that currently operate in a global namespace need to accept a `userId` parameter and scope their reads/writes to it.
+
+**`src/database.js`** — `addMessage`, `getMessages`, `getMessageCount`, `getSourceCounts`, `getCategoryCounts` all gain a required `userId` parameter. SELECTs add `WHERE user_id = ?` (or `WHERE user_id = ? OR ? = 'ANY'` for admin overrides). INSERTs stamp `user_id`. The existing three-argument `addMessage(content, source, category, metadata)` signature becomes `addMessage({ content, source, category, metadata, userId })` — callers are updated in the same task.
+
+Similar updates for `addMirrorEntry`, `getMirrorEntries`, `supersedeMirrorEntry`, `addWikiEntry`, `getWikiEntries`, `getAllWikiEntries`, `updateWikiEntry`.
+
+**`src/conversation.js`** — `buildHistory` takes a `userId` argument and filters by it. `respond(userText, opts)` signature adds `opts.userId` (required) and passes it through the synthesis pipeline.
+
+**`src/conversation-hooks.js`** — `postResponse({ userText, assistantText, sourceId, draftSlug, userId })` passes `userId` into `quantum-mirror.synthesizeFromTurn`.
+
+**`src/quantum-mirror.js`** — `synthesizeFromTurn({ userId, ... })` stores new Mirror entries under that `userId`. `getExistingCandidates` filters by `userId`.
+
+**`src/synthesizer.js`** — `synthesizeFromContent({ userId, ... })` stores new Wiki entries under that `userId`.
+
+**`src/memory/retriever.js`** — `buildContextBlock(query, { userId, mirrorTopK, wikiTopK })` filters Mirror/Wiki retrieval by `userId`.
+
+**`src/memory/vector-engine.js`** — `storeMirrorEntry({ userId, ... })`, `storeWikiEntry({ userId, ... })`, `searchMirrorByQuery({ userId, ... })`, `searchWikiByQuery({ userId, ... })`.
+
+**`src/telegram.js`** — the Telegram bot has no authenticated caller context. It resolves the "system owner" user_id once at startup (via `auth.getSystemOwnerId()`, which returns the oldest `mothership_admin`) and uses it for every message ingested through the Telegram pipeline. Later, sub-project #4's per-satellite bots will each map to their own service-account user.
+
+**`src/watcher.js`** — the file watcher inbox uses the system owner id for the same reason.
+
+**`src/health-check.js`** — the weekly decay/synthesis health check iterates over all users and runs the decay + gap analysis per-user. Scans `users WHERE disabled_at IS NULL` and processes each in sequence.
+
+**`src/exporters/obsidian.js`** — export runs scoped to a single user at a time. `exportAll({ userId })` writes that user's Mirror + Wiki to their vault. The default Obsidian vault path becomes per-user via env vars or DB config, with the old single-path behavior kept as a fallback when only one user exists.
 
 ---
 
@@ -707,8 +813,9 @@ Behavior:
 4. Counts rows in `users`. If count > 0 and `--force` is not passed → error out with "use --force to create another admin".
 5. Hashes password with `hashing.hash()` (argon2id via `hash-wasm`).
 6. INSERTs the user with `auth_method='password'`.
-7. INSERTs a role assignment: `mothership_admin` system role (`satellite_id=NULL`) for the new user.
-8. Prints `{ id, email, display_name }` and exits 0.
+7. INSERTs two role assignments for the new user: the `mothership_admin` system role (`satellite_id=NULL`) AND the baseline `viewer` system role. Both are system-scoped.
+8. Runs the one-time per-user backfill (§5.11): `UPDATE messages SET user_id = <new admin id> WHERE user_id IS NULL`, similarly for `mirror_entries` and `wiki_entries`. Sets the `config.meta.per_user_backfill_done` sentinel. This step is skipped if the sentinel is already set (which means a prior run of this script already did the backfill).
+9. Prints `{ id, email, display_name }` and exits 0.
 
 ### 12.1 Dependency choice: `hash-wasm`
 
@@ -780,12 +887,13 @@ Server:
 1. argon2id-hashes the token and looks up `invitations` by `token_hash`.
 2. Checks `claimed_at IS NULL` and `expires_at > NOW`. Fail → 400.
 3. Creates a `users` row with `auth_method='password'`, hashed password.
-4. Parses `role_grants_json` and inserts one `role_assignments` row per grant.
-5. Updates `invitations`: `claimed_at = NOW`, `claimed_by_user_id = <new user id>`.
-6. Creates a session and sets the cookie.
-7. Responds `{ user, permissions }`.
+4. Grants the baseline `viewer` system role (auto-grant; see §6.4).
+5. Parses `role_grants_json` from the invitation and inserts one additional `role_assignments` row per grant.
+6. Updates `invitations`: `claimed_at = NOW`, `claimed_by_user_id = <new user id>`.
+7. Creates a session and sets the cookie.
+8. Responds `{ user, permissions }`.
 
-Partial failure: steps 3-5 are wrapped in a best-effort transaction — if step 4 fails mid-way, step 3's user row is rolled back (`DELETE FROM users WHERE id = ?`) and the invitation is not marked claimed.
+Partial failure: steps 3-6 are wrapped in a best-effort transaction — if any of steps 4-6 fails, step 3's user row is rolled back (`DELETE FROM users WHERE id = ?`) and the invitation is not marked claimed.
 
 ---
 
@@ -827,7 +935,8 @@ Test framework: `node --test`, same as #1. New test root: `tests/auth/`.
 | `tests/auth/api-keys.test.js` | generate (returns plaintext once), verify, disable, last_used_at bump |
 | `tests/auth/roles.test.js` | seedOnce is idempotent, role-permission lookup works, seed content matches constants |
 | `tests/auth/resolver.test.js` | `can()` across all matrix cases: direct user role (system + satellite), group-inherited role, both at once (dedup), mothership_admin bypass, wrong satellite, nonexistent permission, system role satisfies per-satellite check |
-| `tests/auth/invitations.test.js` | create, claim, double-claim fails, expired claim fails, role grants applied |
+| `tests/auth/invitations.test.js` | create, claim, double-claim fails, expired claim fails, role grants applied, viewer auto-granted |
+| `tests/auth/per-user-scope.test.js` | Core partitioning guarantees: user A cannot SELECT user B's `messages`/`mirror_entries`/`wiki_entries`, admin with `*_any` can override via `?user_id=`, `addMessage` stamps `user_id` correctly, retriever filters by `userId`, backfill populates NULL rows with the bootstrap admin, backfill is idempotent on second run |
 
 ### 15.2 Integration tests
 
@@ -836,7 +945,7 @@ Test framework: `node --test`, same as #1. New test root: `tests/auth/`.
 | `tests/auth/middleware.test.js` | express app + real routes: anonymous→401, invalid cookie→401, valid cookie no permission→403, valid cookie with permission→200, expired→401+row deleted, bearer→200+last_used_at bumped, disabled api_key→401, login rate limit→429 after 5 failures |
 | `tests/auth/retrofit.test.js` | every existing endpoint exercised anonymously (expect 401), with admin session (expect 200), with insufficient-permission session (expect 403). This is the regression safety net for the retrofit. |
 | `tests/auth/bootstrap.test.js` | `scripts/create-admin.js` as a subprocess with `--email` + `--password`, verifies user row + mothership_admin assignment, second run without `--force` fails, `--force` creates another admin |
-| `tests/auth/e2e.test.js` | Full cross-sub-project flow: bootstrap admin → admin creates invitation with `satellite_editor` role on a fixture satellite → invitee claims → invitee issues directive → invitee cannot archive → invitee cannot touch other satellites → admin disables invitee → invitee next request returns 401 |
+| `tests/auth/e2e.test.js` | Full cross-sub-project flow: bootstrap admin → admin creates invitation with `satellite_editor` role on a fixture satellite → invitee claims → invitee gets auto-granted `viewer` + the invitation's `satellite_editor` → invitee issues directive → invitee cannot archive → invitee cannot touch other satellites → invitee `POST /api/chat` creates messages scoped to their own user_id → admin GETs `/api/mirror/entries` and sees only their own Mirror → admin GETs `/api/mirror/entries?user_id=<invitee>` and sees the invitee's Mirror (via `mirror.read_any`) → admin disables invitee → invitee next request returns 401 |
 
 ### 15.3 Regression — #1 tests
 
@@ -865,27 +974,41 @@ The threat model is "public-domain deployment with HTTPS, minimum hardening, exp
 
 Sub-project #2 is complete when all of the following are true:
 
+**Auth + RBAC infrastructure:**
 - [ ] All 10 new tables exist in `data/mothership.db` after boot
 - [ ] Seed roles and permissions populated and idempotent across reboots
-- [ ] `scripts/create-admin.js` creates the first `mothership_admin` successfully
+- [ ] `scripts/create-admin.js` creates the first `mothership_admin` successfully and auto-grants `viewer`
 - [ ] `scripts/create-admin.js` refuses to run when users already exist (without `--force`)
 - [ ] Anonymous request to any previously-public endpoint (except `/api/status`) returns 401
 - [ ] An admin session can hit every retrofitted endpoint and gets 200
 - [ ] A `satellite_editor` session on satellite A can issue directives to A and gets 403 on B
 - [ ] A bearer token authenticates end-to-end: generate → use → revoke → 401
-- [ ] Invitation flow works end-to-end: create → claim → role grants applied → user logged in
+- [ ] Invitation flow works end-to-end: create → claim → viewer auto-granted → invitation role grants applied → user logged in
 - [ ] Password change invalidates all other sessions for that user
 - [ ] Session sweep deletes expired rows at boot and on the daily cron
 - [ ] Rate limit on `/api/auth/login` trips at 6 consecutive failures from one IP
+
+**Per-user data scoping:**
+- [ ] `user_id` column present on `messages`, `mirror_entries`, `wiki_entries`
+- [ ] Backfill populates all existing rows with the bootstrap admin's user_id, idempotent on second run
+- [ ] `POST /api/chat` stamps `req.user.id` into the created rows
+- [ ] User A cannot SELECT user B's Mirror/Wiki/messages via the standard GET endpoints
+- [ ] Admin with `mirror.read_any` can override via `?user_id=<other>` and see another user's data
+- [ ] `conversation.respond` uses the caller's own Mirror + Wiki as context
+- [ ] `quantum-mirror.synthesizeFromTurn` writes new entries under the caller's user_id
+- [ ] `synthesizer.synthesizeFromContent` writes new Wiki entries under the caller's user_id
+- [ ] Telegram bot and file watcher use the `system_owner` id (resolved to the bootstrap admin)
+
+**Regression:**
 - [ ] All 136 existing #1 tests still pass (retrofitted tests now log in first)
 - [ ] Every new test file in §15 passes
-- [ ] `tests/auth/e2e.test.js` cross-sub-project flow passes green
+- [ ] `tests/auth/e2e.test.js` cross-sub-project flow passes green, including the Mirror partitioning checks
 
 ---
 
 ## 18. What this unblocks
 
-- **#3 Dashboard multi-tenancy** — consumes `GET /api/auth/me`, `GET /api/satellites` (filtered list), `POST /api/auth/login`, `POST /api/auth/logout`, and the full `/api/users/*` + `/api/invitations/*` surface to build the login screen, the satellite switcher, and user management UIs. No new auth work.
+- **#3 Dashboard multi-tenancy** — consumes `GET /api/auth/me`, `GET /api/satellites` (filtered list), `POST /api/auth/login`, `POST /api/auth/logout`, and the full `/api/users/*` + `/api/invitations/*` surface to build the login screen, the satellite switcher, and user management UIs. Also gets per-user Mirror/Wiki/chat UIs for free — the backend already filters by caller. No new backend auth work; #3 is pure UI.
 - **#4 Per-satellite Telegram bot runners** — each bot runner authenticates to Mothership via an API key, mapped to a machine user with `satellite_directive_issuer` role on its target satellite.
 - **#5 Control plane** — cross-satellite queries scoped by `req.user.permissionSet`. A `mothership_admin` gets a system-wide briefing; an `observer` gets their own subset.
 - **#6 Staff sub-agent framework** — staff-authored sub-agents run under a machine user with a narrow role (`satellite_viewer` or `satellite_directive_issuer`), logged via the existing auth pipeline.
