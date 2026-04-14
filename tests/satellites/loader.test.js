@@ -79,3 +79,45 @@ test('loader — limited visibility blocks reads of non-meta tables', async () =
   // satellite_meta is still readable
   entry.db.exec('SELECT * FROM satellite_meta');
 });
+
+test('loader — concurrent register calls return the same entry (no leak)', async () => {
+  await registry.createInstance({ slug: 'load-race', name: 'Race', kind: 'test-kind' });
+  const [a, b, c] = await Promise.all([
+    loader.register('load-race'),
+    loader.register('load-race'),
+    loader.register('load-race')
+  ]);
+  // All three resolve to the same entry object — proves only one registration ran.
+  assert.strictEqual(a, b);
+  assert.strictEqual(b, c);
+  // Loader list has exactly one copy of the slug.
+  assert.strictEqual(loader.list().filter(s => s === 'load-race').length, 1);
+});
+
+test('loader — onBoot failure marks satellite broken and aborts register', async () => {
+  // Write a one-off fixture kind whose onBoot throws (separate from
+  // throwing-kind, which throws in onCreate and would fail at createInstance
+  // time — we need a kind that creates successfully and fails at register time).
+  const customDir = path.join(process.env.MOTHERSHIP_KINDS_DIR, 'onboot-throws');
+  fs.mkdirSync(customDir, { recursive: true });
+  fs.writeFileSync(path.join(customDir, 'index.js'),
+    `module.exports = {
+      kind: 'onboot-throws', displayName: 'Boot Throws', version: '0.0.1',
+      description: 'fixture', defaultConfig: {}, directiveHandlers: {},
+      onCreate: async () => {},
+      onBoot: async () => { throw new Error('onBoot-boom'); },
+      onArchive: async () => {}, handlers: {}
+    };`);
+  fs.writeFileSync(path.join(customDir, 'schema.sql'), '');
+
+  try {
+    // Create the satellite normally (onCreate is a no-op, so createInstance succeeds).
+    await registry.createInstance({ slug: 'boot-fail', name: 'BF', kind: 'onboot-throws' });
+    // Now register — onBoot throws, register rejects, satellite marked broken.
+    await assert.rejects(loader.register('boot-fail'), /onBoot-boom/);
+    assert.strictEqual(registry.getBySlug('boot-fail').status, 'broken');
+    assert.strictEqual(loader.get('boot-fail'), undefined);
+  } finally {
+    fs.rmSync(customDir, { recursive: true, force: true });
+  }
+});

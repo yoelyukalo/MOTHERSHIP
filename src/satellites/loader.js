@@ -23,8 +23,14 @@ const directives = require('./directives');
 // Public map: slug → { kind, db: wrapped, config, handlers, dispose }
 const publicMap = new Map();
 
-// Private map: slug → { rawDb, kindModule, config, directivesStop, dbFile }
+// Private map: slug → { rawDb, kindModule, config, directivesStop }
 const privateMap = new Map();
+
+// In-flight register promises, keyed by slug. Prevents concurrent
+// register(slug) calls from racing — both would open their own DB handle
+// and the loser would be silently orphaned (WASM heap leak + dangling
+// chokidar watcher). Idempotency holds under concurrency via this map.
+const registering = new Map();
 
 let SQL = null;
 async function getSQL() {
@@ -45,9 +51,15 @@ async function init() {
   }
 }
 
-async function register(slug) {
-  if (publicMap.has(slug)) return publicMap.get(slug);
+function register(slug) {
+  if (publicMap.has(slug)) return Promise.resolve(publicMap.get(slug));
+  if (registering.has(slug)) return registering.get(slug);
+  const p = _doRegister(slug).finally(() => registering.delete(slug));
+  registering.set(slug, p);
+  return p;
+}
 
+async function _doRegister(slug) {
   const row = registry.getBySlug(slug);
   if (!row) throw new Error(`no such satellite: ${slug}`);
 
@@ -85,13 +97,18 @@ async function register(slug) {
   const config = row.config_json ? JSON.parse(row.config_json) : (kindModule.defaultConfig || {});
   const logger = registry.consoleLogger(slug);
 
-  // onBoot lifecycle hook
+  // onBoot lifecycle hook. A failure here marks the satellite broken and
+  // aborts registration — callers get a thrown error and the spec's §14
+  // "boot failure → broken" invariant holds.
   if (kindModule.onBoot) {
     try {
       await kindModule.onBoot({ db: rawDb, config, logger });
       flushDb(rawDb, paths.dbFile);
     } catch (err) {
+      try { rawDb.close(); } catch (_) {}
+      registry.updateStatus(slug, 'broken');
       db.log('error', 'satellites.loader', `onBoot failed for ${slug}: ${err.message}`);
+      throw err;
     }
   }
 
@@ -115,7 +132,7 @@ async function register(slug) {
     dispose: async () => { await unregister(slug); }
   };
   publicMap.set(slug, entry);
-  privateMap.set(slug, { rawDb, kindModule, config, directivesStop, dbFile: paths.dbFile });
+  privateMap.set(slug, { rawDb, kindModule, config, directivesStop });
 
   return entry;
 }
