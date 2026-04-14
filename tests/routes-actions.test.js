@@ -156,3 +156,106 @@ test('unauthenticated request returns 401', async () => {
   });
   assert.strictEqual(res.status, 401);
 });
+
+test('GET /api/prompt-proposals?status=pending returns pending queue', async () => {
+  db.addPromptProposal({
+    promptName: 'system.conversation',
+    baseVersion: 1,
+    proposedBody: 'NEW SYSTEM BODY',
+    rationale: 'test rationale for approve',
+    replayResultsJson: { sample_size: 10, agreement_rate: 0.8, regressions: [], improvements: [] }
+  });
+  const res = await request('GET', '/api/prompt-proposals?status=pending');
+  assert.strictEqual(res.status, 200);
+  assert.ok(Array.isArray(res.body.proposals));
+  assert.ok(res.body.proposals.some(p => p.prompt_name === 'system.conversation'));
+});
+
+test('GET /api/prompt-proposals/:id returns a single proposal', async () => {
+  const list = (await request('GET', '/api/prompt-proposals?status=pending')).body.proposals;
+  const target = list.find(p => p.prompt_name === 'system.conversation');
+  const res = await request('GET', `/api/prompt-proposals/${target.id}`);
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.proposal.id, target.id);
+});
+
+test('GET /api/prompt-proposals/:id returns 404 for unknown id', async () => {
+  const res = await request('GET', '/api/prompt-proposals/does-not-exist');
+  assert.strictEqual(res.status, 404);
+});
+
+test('POST /api/prompt-proposals/:id/approve creates new version and activates', async () => {
+  // Need the registry seeded so there's a base version to fork from
+  const registry = require('../src/prompts/registry');
+  registry.seedFromHardcoded();
+
+  const list = (await request('GET', '/api/prompt-proposals?status=pending')).body.proposals;
+  const target = list.find(p => p.prompt_name === 'system.conversation' && p.proposed_body === 'NEW SYSTEM BODY');
+  const res = await request('POST', `/api/prompt-proposals/${target.id}/approve`);
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.ok, true);
+  assert.ok(typeof res.body.newVersion === 'number');
+
+  // Registry should now return the new body
+  const active = db.getActivePromptVersion('system.conversation');
+  assert.strictEqual(active.body, 'NEW SYSTEM BODY');
+
+  // Proposal status flipped
+  const refreshed = db.getPromptProposal(target.id);
+  assert.strictEqual(refreshed.status, 'approved');
+  assert.ok(refreshed.resolved_at);
+
+  // Audit action row written
+  const audit = db.getActions({ userId: uid, kind: 'mothership_prompt_change' });
+  assert.ok(audit.some(a => a.data.name === 'system.conversation'));
+});
+
+test('POST /api/prompt-proposals/:id/approve returns 409 if already resolved', async () => {
+  const list = (await request('GET', '/api/prompt-proposals?status=pending')).body.proposals;
+  // Fresh proposal → approve → approve again should 409
+  db.addPromptProposal({
+    promptName: 'synthesis.mirror',
+    baseVersion: 1,
+    proposedBody: 'DOUBLE APPROVE TEST',
+    rationale: 'test'
+  });
+  const p = db.getPendingPromptProposals().find(x => x.proposed_body === 'DOUBLE APPROVE TEST');
+  const first = await request('POST', `/api/prompt-proposals/${p.id}/approve`);
+  assert.strictEqual(first.status, 200);
+  const second = await request('POST', `/api/prompt-proposals/${p.id}/approve`);
+  assert.strictEqual(second.status, 409);
+});
+
+test('POST /api/prompt-proposals/:id/reject leaves registry untouched', async () => {
+  const registry = require('../src/prompts/registry');
+  const beforeActive = db.getActivePromptVersion('synthesis.mirror');
+
+  db.addPromptProposal({
+    promptName: 'synthesis.mirror',
+    baseVersion: 1,
+    proposedBody: 'SHOULD NOT SHIP — REJECTED',
+    rationale: 'test reject'
+  });
+  const p = db.getPendingPromptProposals().find(x => x.proposed_body === 'SHOULD NOT SHIP — REJECTED');
+
+  const res = await request('POST', `/api/prompt-proposals/${p.id}/reject`);
+  assert.strictEqual(res.status, 200);
+
+  // Active version unchanged
+  const afterActive = db.getActivePromptVersion('synthesis.mirror');
+  assert.strictEqual(afterActive.version, beforeActive.version);
+  assert.notStrictEqual(afterActive.body, 'SHOULD NOT SHIP — REJECTED');
+
+  // Proposal status is rejected
+  const refreshed = db.getPromptProposal(p.id);
+  assert.strictEqual(refreshed.status, 'rejected');
+
+  // Audit action row written
+  const audit = db.getActions({ userId: uid, kind: 'mothership_prompt_change_rejected' });
+  assert.ok(audit.some(a => a.data.name === 'synthesis.mirror'));
+});
+
+test('POST /api/prompt-proposals/:id/approve returns 404 for unknown id', async () => {
+  const res = await request('POST', '/api/prompt-proposals/does-not-exist/approve');
+  assert.strictEqual(res.status, 404);
+});
