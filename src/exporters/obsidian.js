@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../database');
 const emb = require('../memory/embeddings');
+const { LAYERS: TAXONOMY_LAYERS } = require('../mirror-taxonomy');
 
 const WIKILINK_SIM_THRESHOLD = parseFloat(process.env.WIKILINK_SIM_THRESHOLD || '0.75');
 
@@ -45,20 +46,25 @@ function findWikilinks(entry, allEntries) {
     .map(e => ({ ...e, vec: emb.fromBuffer(e.embedding) }));
   return emb.findRelevant(qVec, others, 10)
     .filter(r => r.score >= WIKILINK_SIM_THRESHOLD)
-    .map(r => r.topic || `${r.category}/${r.id.slice(0, 6)}`);
+    .map(r => r.topic || `${r.entry_type}/${r.id.slice(0, 6)}`);
 }
 
-function renderMirrorCategory(category, entries) {
+function renderMirrorEntryType(entryType, layer, entries) {
   const header = yamlFrontmatter({
     type: 'mirror',
-    category,
+    entry_type: entryType,
+    layer,
     entry_count: entries.length,
     updated: new Date().toISOString()
   });
   const body = entries.map(e => {
-    return `## ${e.id.slice(0, 8)}\n- **Confidence:** ${e.confidence.toFixed(2)}\n- **Source:** ${e.source_type}${e.source_id ? ` (${e.source_id})` : ''}\n- **Updated:** ${e.updated_at}\n\n${e.content}\n`;
+    const statusLine = e.status && e.status !== 'active' ? `\n- **Status:** ${e.status}` : '';
+    const related = Array.isArray(e.related_ids) && e.related_ids.length
+      ? `\n- **Related:** ${e.related_ids.join(', ')}`
+      : '';
+    return `## ${e.id.slice(0, 8)}\n- **Confidence:** ${e.confidence.toFixed(2)}\n- **Source:** ${e.source_type}${e.source_id ? ` (${e.source_id})` : ''}\n- **Updated:** ${e.updated_at}${statusLine}${related}\n\n${e.content}\n`;
   }).join('\n---\n\n');
-  return header + `# Mirror — ${category}\n\n${body}`;
+  return header + `# Mirror — ${layer}/${entryType}\n\n${body}`;
 }
 
 function renderWikiTopic(entry, wikilinks) {
@@ -78,20 +84,22 @@ function renderWikiTopic(entry, wikilinks) {
   return header + `# ${entry.topic}\n\n${entry.summary}${links}${contradictions}`;
 }
 
-function renderIndex(mirrorCats, wikiEntries) {
+function renderIndex(mirrorEntryTypesByLayer, wikiEntries) {
   const lines = [
     yamlFrontmatter({ type: 'index', generated: new Date().toISOString() }),
     '# Mothership Index',
     '',
-    '## Mirror',
-    ...mirrorCats.map(c => `- [[Mirror/${c}]]`),
-    '',
-    '## Wiki',
-    ...wikiEntries
-      .slice()
-      .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
-      .map(e => `- [[Wiki/${sanitizeFilename(e.topic)}]] — ${e.tags.join(', ')}`)
+    '## Mirror'
   ];
+  for (const [layer, types] of mirrorEntryTypesByLayer) {
+    lines.push(`### ${layer}`);
+    for (const t of types) lines.push(`- [[Mirror/${t}]]`);
+  }
+  lines.push('', '## Wiki');
+  lines.push(...wikiEntries
+    .slice()
+    .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+    .map(e => `- [[Wiki/${sanitizeFilename(e.topic)}]] — ${e.tags.join(', ')}`));
   return lines.join('\n');
 }
 
@@ -110,16 +118,21 @@ async function exportAll() {
   ensureDir(reportsDir);
 
   const allMirror = db.getMirrorEntries({ activeOnly: true, limit: 10000, allUsers: true });
-  const byCat = new Map();
+  const byType = new Map();
+  const typesByLayer = new Map();
   for (const e of allMirror) {
-    if (!byCat.has(e.category)) byCat.set(e.category, []);
-    byCat.get(e.category).push(e);
+    const type = e.entry_type || 'context';
+    const layer = e.layer || 'world';
+    if (!byType.has(type)) byType.set(type, { layer, entries: [] });
+    byType.get(type).entries.push(e);
+    if (!typesByLayer.has(layer)) typesByLayer.set(layer, new Set());
+    typesByLayer.get(layer).add(type);
   }
   let mirrorCount = 0;
-  for (const [cat, list] of byCat) {
-    const file = path.join(mirrorDir, `${sanitizeFilename(cat)}.md`);
-    fs.writeFileSync(file, renderMirrorCategory(cat, list), 'utf8');
-    mirrorCount += list.length;
+  for (const [type, { layer, entries }] of byType) {
+    const file = path.join(mirrorDir, `${sanitizeFilename(type)}.md`);
+    fs.writeFileSync(file, renderMirrorEntryType(type, layer, entries), 'utf8');
+    mirrorCount += entries.length;
   }
 
   const allWiki = db.getAllWikiEntries({ allUsers: true });
@@ -131,9 +144,14 @@ async function exportAll() {
     wikiCount++;
   }
 
+  // Ordered [layer, [entryTypes]] pairs for the index, using canonical layer order.
+  const layerPairs = TAXONOMY_LAYERS
+    .filter(l => typesByLayer.has(l))
+    .map(l => [l, Array.from(typesByLayer.get(l)).sort()]);
+
   fs.writeFileSync(
     path.join(vault, '_index.md'),
-    renderIndex(Array.from(byCat.keys()), allWiki),
+    renderIndex(layerPairs, allWiki),
     'utf8'
   );
 

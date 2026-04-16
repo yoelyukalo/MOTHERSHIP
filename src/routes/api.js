@@ -156,17 +156,20 @@ router.post('/mirror/resonance', requireAuth({ permission: 'mirror.read' }), (re
   res.json(entry);
 });
 
-// --- Quantum Mirror v2 (per-user) ---
+// --- Quantum Mirror v3 (per-user, 21-type taxonomy) ---
 
 router.get('/mirror/entries', requireAuth({ permission: 'mirror.read' }), (req, res) => {
-  const { category, limit, user_id } = req.query;
+  const { entry_type, layer, status, category, limit, user_id } = req.query;
   let targetUserId = req.user.id;
   if (user_id && user_id !== req.user.id) {
     if (!req.user.can('mirror.read_any')) return res.status(403).json({ error: 'forbidden' });
     targetUserId = user_id;
   }
   res.json(db.getMirrorEntries({
-    category: category || null,
+    entry_type: entry_type || null,
+    layer: layer || null,
+    status: status || null,
+    category: category || null, // legacy alias, resolved via taxonomy
     activeOnly: true,
     limit: parseInt(limit) || 100,
     userId: targetUserId

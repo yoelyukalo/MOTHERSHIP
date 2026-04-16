@@ -23,6 +23,7 @@ const db = require('./database');
 const ve = require('./memory/vector-engine');
 const { MIRROR_SYNTHESIS } = require('./memory/synthesis-prompts');
 const { logAction } = require('./action-logger');
+const { parseLlmJson } = require('./util/parse-llm-json');
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1200;
@@ -41,20 +42,16 @@ function getClient() {
 
 function getExistingCandidates(userId) {
   return db.getMirrorEntries({ activeOnly: true, limit: 200, userId })
-    .map(r => ({ id: r.id, category: r.category, content: r.content, confidence: r.confidence }));
+    .map(r => ({
+      id: r.id,
+      entry_type: r.entry_type,
+      layer: r.layer,
+      content: r.content,
+      confidence: r.confidence
+    }));
 }
 
-function parseJsonFromText(text) {
-  const trimmed = text.trim();
-  try { return JSON.parse(trimmed); }
-  catch {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
-    throw new Error(`Synthesis returned non-JSON: ${trimmed.slice(0, 200)}`);
-  }
-}
-
-async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCategory = null, userId }) {
+async function synthesizeFromTurn({ userText, assistantText, sourceId, forceEntryType = null, userId }) {
   if (!userId) throw new Error('synthesizeFromTurn: userId required');
   const turn = `USER: ${userText}\n\nMOTHERSHIP: ${assistantText}`;
   const existing = getExistingCandidates(userId);
@@ -67,11 +64,9 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
     messages: [{ role: 'user', content: prompt }]
   });
   const text = res.content.find(b => b.type === 'text')?.text || '{}';
-  let parsed;
-  try {
-    parsed = parseJsonFromText(text);
-  } catch (err) {
-    db.log('warn', 'quantum-mirror', `synthesis parse failed: ${err.message}`, { text });
+  const parsed = parseLlmJson(text);
+  if (!parsed) {
+    db.log('warn', 'quantum-mirror', 'synthesis parse failed', { head: text.slice(0, 500) });
     return { created: 0, superseded: 0 };
   }
 
@@ -79,7 +74,7 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   for (const entry of parsed.new_entries || []) {
     try {
       await ve.storeMirrorEntry({
-        category: forceCategory || entry.category,
+        entry_type: forceEntryType || entry.entry_type || entry.category,
         content: entry.content,
         confidence: entry.confidence ?? 0.6,
         source_type: 'conversation',
@@ -95,10 +90,10 @@ async function synthesizeFromTurn({ userText, assistantText, sourceId, forceCate
   let superseded = 0;
   for (const s of parsed.supersede || []) {
     try {
-      const old = db.getMirrorEntries({ activeOnly: true, limit: 10000, userId }).find(r => r.id === s.old_id);
-      if (!old) continue;
+      const old = db.getMirrorEntryById(s.old_id);
+      if (!old || old.user_id !== userId || old.superseded_by) continue;
       await ve.supersedeMirrorEntry(s.old_id, {
-        category: old.category,
+        entry_type: old.entry_type,
         content: s.new_content,
         confidence: s.new_confidence ?? old.confidence,
         source_type: 'conversation',
@@ -129,10 +124,12 @@ async function storeFromReflection({ proposals = [], userId, reflectionId }) {
   if (!userId) throw new Error('storeFromReflection: userId required');
   let stored = 0;
   for (const p of proposals) {
-    if (!p || !p.category || !p.content) continue;
+    if (!p || !p.content) continue;
+    const entryType = p.entry_type || p.category;
+    if (!entryType) continue;
     try {
       await ve.storeMirrorEntry({
-        category: p.category,
+        entry_type: entryType,
         content: p.content,
         confidence: p.confidence ?? 0.6,
         source_type: 'reflection',

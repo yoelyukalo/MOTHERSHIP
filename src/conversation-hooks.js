@@ -43,7 +43,10 @@ async function postResponse({ userText, assistantText, sourceId, draftSlug = nul
       assistantText,
       sourceId,
       userId,
-      forceCategory: draftSlug ? 'satellite-building' : null
+      // Satellite-draft conversations are exploratory by nature; pin every
+      // synthesized entry to the 'experiment' type so they cluster together
+      // when the draft is later reviewed.
+      forceEntryType: draftSlug ? 'experiment' : null
     });
   } catch (err) {
     db.log('error', 'hooks.postResponse', err.message);

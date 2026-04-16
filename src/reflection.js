@@ -16,9 +16,13 @@ const db = require('./database');
 const registry = require('./prompts/registry');
 const replay = require('./prompts/replay');
 const qm = require('./quantum-mirror');
+const { parseLlmJson } = require('./util/parse-llm-json');
 
 const MODEL = process.env.REFLECTION_MODEL || 'claude-opus-4-6';
-const MAX_TOKENS = 3000;
+// 8000 gives Opus enough runway for a rich briefing + patterns + self_critique
+// + mirror_proposals on a busy day. At 3000 the model hit the ceiling mid-JSON
+// and the parser couldn't recover.
+const MAX_TOKENS = parseInt(process.env.REFLECTION_MAX_TOKENS || '8000', 10);
 const WINDOW_HOURS = parseFloat(process.env.REFLECTION_WINDOW_HOURS || '24');
 const MAX_PENDING_PROPOSALS = parseInt(process.env.MAX_PENDING_PROPOSALS || '20', 10);
 
@@ -35,18 +39,6 @@ function getClient() {
 }
 
 let reflectionInProgress = false;
-
-function parseJsonFromText(text) {
-  const trimmed = (text || '').trim();
-  try { return JSON.parse(trimmed); }
-  catch {
-    const m = trimmed.match(/\{[\s\S]*\}/);
-    if (m) {
-      try { return JSON.parse(m[0]); } catch { return null; }
-    }
-    return null;
-  }
-}
 
 function buildWindow() {
   const end = new Date();
@@ -90,7 +82,7 @@ async function runNow({ userId }) {
 
     const mirrorRows = db.getMirrorEntries({ userId, limit: 100, activeOnly: true });
     const mirrorSnapshot = mirrorRows
-      .map(r => `- [${r.category}] (${r.confidence}) ${r.content}`)
+      .map(r => `- [${r.layer}/${r.entry_type}] (${r.confidence}) ${r.content}`)
       .join('\n') || '(empty)';
 
     const activePrompts = registry.listActive();
@@ -101,6 +93,7 @@ async function runNow({ userId }) {
     });
 
     let parsed;
+    let rawText = '';
     try {
       const c = getClient();
       const res = await c.messages.create({
@@ -108,14 +101,23 @@ async function runNow({ userId }) {
         max_tokens: MAX_TOKENS,
         messages: [{ role: 'user', content: prompt }]
       });
-      const text = res.content.find(b => b.type === 'text')?.text || '{}';
-      parsed = parseJsonFromText(text);
+      rawText = res.content.find(b => b.type === 'text')?.text || '{}';
+      parsed = parseLlmJson(rawText);
     } catch (err) {
       try { db.log('error', 'reflection', `LLM call failed: ${err.message}`); } catch {}
       return { status: 'failed', error: err.message };
     }
 
     if (!parsed) {
+      // Capture head + tail so truncation (max_tokens hit) is distinguishable
+      // from structural breakage (valid boundaries but malformed content).
+      try {
+        db.log('error', 'reflection', 'unparseable_response', {
+          len: rawText.length,
+          head: rawText.slice(0, 1500),
+          tail: rawText.slice(-800)
+        });
+      } catch {}
       return { status: 'failed', error: 'unparseable_response' };
     }
 

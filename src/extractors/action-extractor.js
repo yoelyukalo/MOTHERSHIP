@@ -17,6 +17,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../database');
 const prompts = require('../prompts/registry');
+const { parseLlmJson } = require('../util/parse-llm-json');
 
 const MODEL = process.env.ACTION_EXTRACTOR_MODEL || 'claude-haiku-4-5';
 const MAX_TOKENS = 800;
@@ -32,19 +33,6 @@ function getClient() {
     timeout: 60_000
   });
   return client;
-}
-
-function parseJsonFromText(text) {
-  const trimmed = (text || '').trim();
-  try { return JSON.parse(trimmed); }
-  catch {
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); }
-      catch { return null; }
-    }
-    return null;
-  }
 }
 
 function buildPrompt({ userText, assistantText }) {
@@ -71,7 +59,7 @@ async function extract({ userText, assistantText, userId }) {
       messages: [{ role: 'user', content: prompt }]
     });
     const text = res.content.find(b => b.type === 'text')?.text || '{}';
-    const parsed = parseJsonFromText(text);
+    const parsed = parseLlmJson(text);
     if (!parsed || !Array.isArray(parsed.candidates)) {
       try { db.log('warn', 'action-extractor', 'non-JSON response', { sample: text.slice(0, 200) }); } catch {}
       return { candidates: [] };

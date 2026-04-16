@@ -30,7 +30,7 @@ test('obsidian exporter — writes mirror + wiki markdown with frontmatter', asy
   });
 
   await ve.storeMirrorEntry({
-    category: 'mental_models', content: 'Thinks in systems',
+    entry_type: 'model', content: 'Thinks in systems',
     confidence: 0.9, source_type: 'conversation', source_id: 'x',
     userId: testUserId
   });
@@ -43,7 +43,8 @@ test('obsidian exporter — writes mirror + wiki markdown with frontmatter', asy
 
   const report = await obsidian.exportAll();
 
-  const mirrorFile = path.join(tmpVault, 'Mirror', 'mental_models.md');
+  // v3 exporter writes one file per entry_type (not per legacy category)
+  const mirrorFile = path.join(tmpVault, 'Mirror', 'model.md');
   const wikiFile = path.join(tmpVault, 'Wiki', 'RAG.md');
   const indexFile = path.join(tmpVault, '_index.md');
 

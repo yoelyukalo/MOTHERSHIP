@@ -140,16 +140,10 @@ function init() {
           return;
         }
         const rows = db.getMirrorEntries({ activeOnly: true, limit: 30, userId: ownerId });
-        const byCat = {};
-        for (const r of rows) (byCat[r.category] ||= []).push(r);
-        const lines = ['🪞 *Quantum Mirror (top 30 active)*'];
-        for (const [cat, list] of Object.entries(byCat)) {
-          lines.push(`\n*${cat}*`);
-          for (const e of list.slice(0, 5)) {
-            lines.push(`- (${e.confidence.toFixed(2)}) ${e.content}`);
-          }
-        }
-        await bot.sendMessage(chatId, lines.join('\n').slice(0, 4000), { reply_to_message_id: msg.message_id }).catch(() => {});
+        const retriever = require('./memory/retriever');
+        const body = retriever.formatMirrorSection(rows) || '(empty)';
+        const text = `🪞 *Quantum Mirror (top 30 active)*\n\n${body}`.slice(0, 4000);
+        await bot.sendMessage(chatId, text, { reply_to_message_id: msg.message_id }).catch(() => {});
         return;
       }
 

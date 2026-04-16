@@ -31,7 +31,7 @@ async function runIfNeeded({ userId } = {}) {
 
   for (const m of legacy.mental_models || []) {
     await ve.storeMirrorEntry({
-      category: 'mental_models',
+      entry_type: 'model',
       content: `${m.name}: ${m.description}`,
       confidence: m.strength ?? 0.7,
       source_type: 'migration',
@@ -44,7 +44,7 @@ async function runIfNeeded({ userId } = {}) {
   if (legacy.learning_style) {
     const ls = legacy.learning_style;
     await ve.storeMirrorEntry({
-      category: 'patterns',
+      entry_type: 'signal',
       content: `Learning style is primarily ${ls.primary}.`,
       confidence: 0.7,
       source_type: 'migration',
@@ -55,7 +55,7 @@ async function runIfNeeded({ userId } = {}) {
 
     for (const pref of ls.preferences || []) {
       await ve.storeMirrorEntry({
-        category: 'preferences',
+        entry_type: 'signal',
         content: `Prefers to learn ${pref.mode.toLowerCase()} — ${pref.note}`,
         confidence: pref.score ?? 0.7,
         source_type: 'migration',
@@ -67,7 +67,7 @@ async function runIfNeeded({ userId } = {}) {
 
     for (const avoid of ls.avoid || []) {
       await ve.storeMirrorEntry({
-        category: 'preferences',
+        entry_type: 'signal',
         content: `Dislikes: ${avoid}`,
         confidence: 0.6,
         source_type: 'migration',
@@ -80,7 +80,7 @@ async function runIfNeeded({ userId } = {}) {
 
   for (const k of legacy.knowledge_graph || []) {
     await ve.storeMirrorEntry({
-      category: 'knowledge_levels',
+      entry_type: 'model',
       content: `${k.topic} — ${k.level}. ${k.notes || ''}`.trim(),
       confidence: 0.75,
       source_type: 'migration',

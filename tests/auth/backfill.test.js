@@ -23,8 +23,8 @@ before(async () => {
   const raw = db._raw();
   raw.run(`INSERT INTO messages (id, content, source) VALUES (?, ?, ?)`, [uuidv4(), 'old msg 1', 'telegram']);
   raw.run(`INSERT INTO messages (id, content, source) VALUES (?, ?, ?)`, [uuidv4(), 'old msg 2', 'file']);
-  raw.run(`INSERT INTO mirror_entries (id, category, content, confidence, source_type) VALUES (?, ?, ?, ?, ?)`,
-    [uuidv4(), 'pref', 'likes terse', 0.8, 'conversation']);
+  raw.run(`INSERT INTO mirror_entries (id, entry_type, layer, category, content, confidence, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [uuidv4(), 'signal', 'pattern', 'signal', 'likes terse', 0.8, 'conversation']);
   raw.run(`INSERT INTO wiki_entries (id, topic, summary) VALUES (?, ?, ?)`,
     [uuidv4(), 'quantum-mirror', 'A cognitive profile']);
   db.save();

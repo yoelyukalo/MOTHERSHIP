@@ -17,6 +17,7 @@ const db = require('./database');
 const auth = require('./auth');
 const { HEALTH_CONTRADICTIONS, GAP_ANALYSIS } = require('./memory/synthesis-prompts');
 const prompts = require('./prompts/registry');
+const { parseLlmJson } = require('./util/parse-llm-json');
 
 // Register the canonical fallbacks at module load. seedFromHardcoded covers
 // the production path (boot sequence); this duplicate registration keeps
@@ -41,15 +42,6 @@ function getClient() {
 
 function daysSince(iso) {
   return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24);
-}
-
-function parseJsonFromText(text) {
-  try { return JSON.parse(text.trim()); }
-  catch {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    return null;
-  }
 }
 
 async function decayStale() {
@@ -78,14 +70,14 @@ async function scanContradictions() {
     messages: [{ role: 'user', content: HEALTH_CONTRADICTIONS({ entries: rows }) }]
   });
   const text = res.content.find(b => b.type === 'text')?.text || '{}';
-  const parsed = parseJsonFromText(text) || { contradictions: [] };
+  const parsed = parseLlmJson(text) || { contradictions: [] };
   return parsed.contradictions || [];
 }
 
 async function gapAnalysis() {
   const rows = db.getMirrorEntries({ activeOnly: true, limit: 200, allUsers: true });
   const wiki = db.getAllWikiEntries({ allUsers: true }).map(w => w.topic);
-  const snapshot = rows.map(r => `- [${r.category}] ${r.content}`).join('\n');
+  const snapshot = rows.map(r => `- [${r.layer}/${r.entry_type}] ${r.content}`).join('\n');
   const c = getClient();
   const res = await c.messages.create({
     model: MODEL,
@@ -93,7 +85,7 @@ async function gapAnalysis() {
     messages: [{ role: 'user', content: GAP_ANALYSIS({ mirror: snapshot, wikiTopics: wiki }) }]
   });
   const text = res.content.find(b => b.type === 'text')?.text || '{}';
-  return parseJsonFromText(text) || { knowledge_gaps: [], thin_mirror_categories: [] };
+  return parseLlmJson(text) || { knowledge_gaps: [], thin_mirror_entry_types: [] };
 }
 
 function writeReport(summary) {
@@ -121,8 +113,8 @@ function writeReport(summary) {
     `## Knowledge gaps`,
     ...(summary.gapDetail?.knowledge_gaps || []).map(g => `- ${g.gap} — ${g.why_it_matters}`),
     '',
-    `## Thin mirror categories`,
-    ...(summary.gapDetail?.thin_mirror_categories || []).map(t => `- ${t.category}: ${t.suggestion}`)
+    `## Thin mirror entry types`,
+    ...(summary.gapDetail?.thin_mirror_entry_types || []).map(t => `- ${t.layer}/${t.entry_type}: ${t.suggestion}`)
   ].join('\n');
   fs.writeFileSync(file, body, 'utf8');
   return file;

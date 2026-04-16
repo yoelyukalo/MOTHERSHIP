@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOTHERSHIP — System Hierarchy</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0a0f;
+    color: #e0e0e8;
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* ── Header ── */
+  .header {
+    text-align: center;
+    margin-bottom: 56px;
+  }
+  .header h1 {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    background: linear-gradient(135deg, #a78bfa, #60a5fa, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .subtitle {
+    font-size: 14px;
+    color: #6b7280;
+    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+  .phase-badge {
+    display: inline-block;
+    margin-top: 16px;
+    padding: 4px 14px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: rgba(167,139,250,0.15);
+    color: #a78bfa;
+    border: 1px solid rgba(167,139,250,0.25);
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 48px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #9ca3af;
+  }
+  .legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  /* ── Tier sections ── */
+  .tier {
+    margin-bottom: 40px;
+    position: relative;
+  }
+  .tier-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #4b5563;
+    margin-bottom: 16px;
+    padding-left: 4px;
+  }
+
+  /* ── Connector lines ── */
+  .connector-zone {
+    display: flex;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .connector-line {
+    width: 2px;
+    height: 32px;
+    background: linear-gradient(to bottom, rgba(167,139,250,0.5), rgba(96,165,250,0.3));
+    border-radius: 2px;
+  }
+  .connector-fan {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 0;
+    padding: 0 0 8px;
+    position: relative;
+  }
+  .connector-fan::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 15%;
+    right: 15%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(96,165,250,0.3), rgba(96,165,250,0.3), transparent);
+    border-radius: 2px;
+  }
+
+  /* ── Cards ── */
+  .card-row {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 20px 24px;
+    transition: all 0.25s ease;
+    position: relative;
+    overflow: hidden;
+    cursor: default;
+  }
+  .card:hover {
+    border-color: rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.05);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+  }
+
+  /* Color coding */
+  .card.core::before { background: linear-gradient(90deg, #a78bfa, #818cf8); }
+  .card.ingestion::before { background: linear-gradient(90deg, #60a5fa, #38bdf8); }
+  .card.intelligence::before { background: linear-gradient(90deg, #f472b6, #e879f9); }
+  .card.agent::before { background: linear-gradient(90deg, #34d399, #2dd4bf); }
+  .card.interface::before { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+  .card.satellite::before { background: linear-gradient(90deg, #fb923c, #f97316); }
+  .card.meta::before { background: linear-gradient(90deg, #94a3b8, #64748b); }
+
+  .card-icon {
+    font-size: 22px;
+    margin-bottom: 10px;
+  }
+  .card-title {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #f3f4f6;
+  }
+  .card-desc {
+    font-size: 12px;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+  .card-files {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .file-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+    color: #9ca3af;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  /* Specific card sizes */
+  .card.mothership-core {
+    min-width: 320px;
+    text-align: center;
+  }
+  .card.medium { min-width: 220px; max-width: 260px; flex: 1; }
+  .card.small { min-width: 180px; max-width: 220px; flex: 1; }
+
+  /* Arrows between tiers */
+  .arrow-down {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0;
+  }
+  .arrow-down svg {
+    opacity: 0.3;
+  }
+
+  /* Phase indicators */
+  .phase-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 3px;
+    margin-bottom: 8px;
+  }
+  .phase-tag.p1 { background: rgba(34,197,94,0.15); color: #4ade80; }
+  .phase-tag.p2 { background: rgba(96,165,250,0.15); color: #60a5fa; }
+  .phase-tag.p3 { background: rgba(244,114,182,0.15); color: #f472b6; }
+  .phase-tag.p4 { background: rgba(52,211,153,0.15); color: #34d399; }
+  .phase-tag.p5 { background: rgba(148,163,184,0.15); color: #94a3b8; }
+  .phase-tag.p6 { background: rgba(251,146,60,0.15); color: #fb923c; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .card.medium, .card.small { min-width: 160px; }
+    .header h1 { font-size: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>MOTHERSHIP</h1>
+    <div class="subtitle">System Architecture Hierarchy</div>
+    <div class="phase-badge">Currently in Phase 1 — Foundation</div>
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#a78bfa"></div> Core</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div> Ingestion</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f472b6"></div> Intelligence</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#34d399"></div> Agents</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fbbf24"></div> Interface</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#fb923c"></div> Satellites</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#94a3b8"></div> Meta / Self-Improvement</div>
+  </div>
+
+  <!-- ═══════ TIER 0: INPUT SOURCES ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Input Sources</div>
+    <div class="card-row">
+      <div class="card ingestion small">
+        <div class="card-icon">🎙️</div>
+        <div class="card-title">Meta Glasses</div>
+        <div class="card-desc">Voice capture → Telegram relay</div>
+      </div>
+      <div class="card ingestion small">
+        <div class="card-icon">📄</div>
+        <div class="card-title">Documents</div>
+        <div class="card-desc">Reports, files, PDFs dropped to inbox</div>
+      </div>
+      <div class="card ingestion small">
+        <div class="card-icon">🎬</div>
+        <div class="card-title">Media</div>
+        <div class="card-desc">YouTube, TikTok, web content</div>
+      </div>
+      <div class="card ingestion small">
+        <div class="card-icon">📡</div>
+        <div class="card-title">Third-Party</div>
+        <div class="card-desc">API hooks, external reports</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#60a5fa" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 1: INGESTION LAYER ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Ingestion Layer</div>
+    <div class="card-row">
+      <div class="card ingestion medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">💬</div>
+        <div class="card-title">Telegram Bot</div>
+        <div class="card-desc">Webhook receiver — voice, text, images, files from Telegram</div>
+        <div class="card-files"><span class="file-tag">telegram.js</span></div>
+      </div>
+      <div class="card ingestion medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">👁️</div>
+        <div class="card-title">File Watcher</div>
+        <div class="card-desc">Chokidar watches <code>./inbox</code> for dropped files</div>
+        <div class="card-files"><span class="file-tag">watcher.js</span></div>
+      </div>
+      <div class="card ingestion medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🔗</div>
+        <div class="card-title">URL Ingestion</div>
+        <div class="card-desc">Fetches and processes web URLs, YouTube via yt-dlp</div>
+        <div class="card-files"><span class="file-tag">ingest-url.js</span><span class="file-tag">url.js</span><span class="file-tag">ytdlp.js</span></div>
+      </div>
+      <div class="card ingestion medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🎤</div>
+        <div class="card-title">Audio / Vision</div>
+        <div class="card-desc">Audio transcription & image analysis pipeline</div>
+        <div class="card-files"><span class="file-tag">audio.js</span><span class="file-tag">vision.js</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#a78bfa" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 2: CORE (Orchestrator + DB + Server) ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Core — The Mothership</div>
+    <div class="card-row">
+      <div class="card core mothership-core">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🚀</div>
+        <div class="card-title">Express Server + Orchestrator</div>
+        <div class="card-desc">Boot sequence, Express on :3000, mounts all routes, routes tasks, manages state, sequences agents</div>
+        <div class="card-files">
+          <span class="file-tag">server.js</span>
+          <span class="file-tag">processor.js</span>
+          <span class="file-tag">content-router.js</span>
+          <span class="file-tag">synthesizer.js</span>
+        </div>
+      </div>
+    </div>
+    <div style="height:16px"></div>
+    <div class="card-row">
+      <div class="card core medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🗃️</div>
+        <div class="card-title">SQLite (sql.js)</div>
+        <div class="card-desc">WASM-based, no native deps — messages, categories, logs, mirror data</div>
+        <div class="card-files"><span class="file-tag">database.js</span></div>
+      </div>
+      <div class="card core medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🔐</div>
+        <div class="card-title">Auth System</div>
+        <div class="card-desc">API keys, sessions, roles, groups, user management</div>
+        <div class="card-files"><span class="file-tag">auth/</span></div>
+      </div>
+      <div class="card core medium">
+        <span class="phase-tag p1">Phase 1 ✓</span>
+        <div class="card-icon">🌐</div>
+        <div class="card-title">REST API</div>
+        <div class="card-desc">Endpoints for UI, agents, and external hooks</div>
+        <div class="card-files"><span class="file-tag">routes/api.js</span><span class="file-tag">routes/auth.js</span><span class="file-tag">routes/users.js</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#f472b6" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 3: INTELLIGENCE LAYER ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Intelligence Layer</div>
+    <div class="card-row">
+      <div class="card intelligence medium">
+        <span class="phase-tag p2">Phase 2</span>
+        <div class="card-icon">🧠</div>
+        <div class="card-title">LLM Adapter</div>
+        <div class="card-desc">Swappable: Claude (primary), GPT-4o, Llama, Mistral</div>
+        <div class="card-files"><span class="file-tag">conversation.js</span><span class="file-tag">conversation-hooks.js</span></div>
+      </div>
+      <div class="card intelligence medium">
+        <span class="phase-tag p2">Phase 2</span>
+        <div class="card-icon">🪞</div>
+        <div class="card-title">Quantum Mirror</div>
+        <div class="card-desc">Cognitive profile — mental models, learning style, knowledge graph, resonance log</div>
+        <div class="card-files"><span class="file-tag">quantum-mirror.js</span><span class="file-tag">mirror.js</span></div>
+      </div>
+      <div class="card intelligence medium">
+        <span class="phase-tag p2">Phase 2</span>
+        <div class="card-icon">🧲</div>
+        <div class="card-title">Memory & Embeddings</div>
+        <div class="card-desc">Vector engine, semantic retrieval, synthesis prompts</div>
+        <div class="card-files"><span class="file-tag">memory/</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#34d399" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 4: INTERNAL AGENTS ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Internal Agents</div>
+    <div class="card-row">
+      <div class="card agent small">
+        <span class="phase-tag p4">Phase 4</span>
+        <div class="card-icon">📊</div>
+        <div class="card-title">BI Agent</div>
+        <div class="card-desc">Market & financial intelligence</div>
+      </div>
+      <div class="card agent small">
+        <span class="phase-tag p4">Phase 4</span>
+        <div class="card-icon">🎓</div>
+        <div class="card-title">Teaching Agent</div>
+        <div class="card-desc">Adaptive, mirror-aware learning</div>
+      </div>
+      <div class="card agent small">
+        <span class="phase-tag p4">Phase 4</span>
+        <div class="card-icon">🏃</div>
+        <div class="card-title">Physical Life Agent</div>
+        <div class="card-desc">Plan, execute, adapt</div>
+      </div>
+      <div class="card agent small">
+        <span class="phase-tag p4">Phase 4</span>
+        <div class="card-icon">📺</div>
+        <div class="card-title">Media Ingestion</div>
+        <div class="card-desc">Consume, summarize, write to mirror</div>
+        <div class="card-files"><span class="file-tag">media.js</span><span class="file-tag">pdf.js</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#fbbf24" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 5: INTERFACE ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Interface</div>
+    <div class="card-row">
+      <div class="card interface medium">
+        <span class="phase-tag p3">Phase 3</span>
+        <div class="card-icon">🖥️</div>
+        <div class="card-title">Dashboard UI</div>
+        <div class="card-desc">Review, browse, search, feedback — served from <code>/public</code></div>
+        <div class="card-files"><span class="file-tag">public/index.html</span></div>
+      </div>
+      <div class="card interface medium">
+        <span class="phase-tag p3">Phase 3</span>
+        <div class="card-icon">🤖</div>
+        <div class="card-title">Mothership Agent</div>
+        <div class="card-desc">Persistent AI with full DB context across all ventures</div>
+      </div>
+      <div class="card interface medium">
+        <span class="phase-tag p3">Phase 3</span>
+        <div class="card-icon">📤</div>
+        <div class="card-title">Exporters</div>
+        <div class="card-desc">Obsidian export, future integrations</div>
+        <div class="card-files"><span class="file-tag">exporters/obsidian.js</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#94a3b8" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 6: SELF-IMPROVEMENT ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Self-Improvement Loop</div>
+    <div class="card-row">
+      <div class="card meta medium">
+        <span class="phase-tag p5">Phase 5</span>
+        <div class="card-icon">📝</div>
+        <div class="card-title">Action Logger</div>
+        <div class="card-desc">Every agent action + outcome tracked</div>
+      </div>
+      <div class="card meta medium">
+        <span class="phase-tag p5">Phase 5</span>
+        <div class="card-icon">🔄</div>
+        <div class="card-title">Reflection Agent</div>
+        <div class="card-desc">Finds patterns, proposes improvements, versions prompts</div>
+      </div>
+      <div class="card meta medium">
+        <span class="phase-tag p5">Phase 5</span>
+        <div class="card-icon">🔖</div>
+        <div class="card-title">Prompt Versioning</div>
+        <div class="card-desc">Rollback + progress tracking for all prompts</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Arrow -->
+  <div class="arrow-down">
+    <svg width="24" height="32" viewBox="0 0 24 32"><path d="M12 0 L12 26 M6 20 L12 28 L18 20" stroke="#fb923c" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+  </div>
+
+  <!-- ═══════ TIER 7: SATELLITE TEAMS ═══════ -->
+  <div class="tier">
+    <div class="tier-label">Satellite Teams — Independent, Report Up</div>
+    <div class="card-row">
+      <div class="card satellite small">
+        <span class="phase-tag p6">Phase 6</span>
+        <div class="card-icon">💻</div>
+        <div class="card-title">Code Team</div>
+        <div class="card-desc">First satellite — independent agents + rep</div>
+        <div class="card-files"><span class="file-tag">satellites/</span></div>
+      </div>
+      <div class="card satellite small">
+        <span class="phase-tag p6">Phase 6</span>
+        <div class="card-icon">📦</div>
+        <div class="card-title">Product Team</div>
+        <div class="card-desc">Product development & strategy</div>
+      </div>
+      <div class="card satellite small">
+        <span class="phase-tag p6">Phase 6</span>
+        <div class="card-icon">📈</div>
+        <div class="card-title">GTM Team</div>
+        <div class="card-desc">Go-to-market execution</div>
+      </div>
+      <div class="card satellite small">
+        <span class="phase-tag p6">Phase 6</span>
+        <div class="card-icon">🥽</div>
+        <div class="card-title">visionOS Team</div>
+        <div class="card-desc">Spatial computing — when ready</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center; margin-top:56px; color:#374151; font-size:12px; font-family:'JetBrains Mono',monospace;">
+    local-first &bull; Node.js + SQLite (sql.js/WASM) &bull; 10.1.10.168:3000
+  </div>
+
+</div>
+
+</body>
+</html>

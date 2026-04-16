@@ -35,7 +35,7 @@ Yoel is actively building Mothership (you). He sends content — articles, video
 - Node.js + Express, SQLite via sql.js (WASM, no native deps)
 - Ingestion: Telegram bot, file watcher on ./inbox, URL/video processing
 - Vision via Claude (src/vision.js), audio transcription, yt-dlp for video
-- Quantum Mirror v2: dynamic mirror_entries + wiki_entries tables with semantic retrieval
+- Quantum Mirror v3: dynamic mirror_entries + wiki_entries tables with semantic retrieval. The mirror uses a 21-type entry taxonomy organised into 5 layers (identity/pattern/direction/world/resilience) — each row has an entry_type, layer, status, confidence, and related_ids.
 
 # Output rules
 - Plain prose, no markdown headers unless genuinely structured.
@@ -89,8 +89,10 @@ Output STRICT JSON:
   "briefing_md": "string (markdown, 300-1500 chars)",
   "patterns": [{"description": "...", "evidence_action_ids": [...], "confidence": 0.0-1.0}],
   "self_critique": [{"prompt_name": "...", "issue": "...", "proposed_body": "...", "rationale": "..."}],
-  "mirror_proposals": [{"category": "...", "content": "...", "confidence": 0.0-1.0, "supporting_action_ids": [...]}]
+  "mirror_proposals": [{"entry_type": "...", "content": "...", "confidence": 0.0-1.0, "supporting_action_ids": [...]}]
 }
+
+Valid entry_type values (21 total): belief, identity, state, fear, loop, trigger, signal, contradiction, goal, commitment, decision, simulation, question, experiment, context, relationship, resource, influence, model, constraint, win.
 
 Rules:
 - briefing_md leads with what matters today (open commitments, wins, state)

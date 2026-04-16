@@ -16,18 +16,31 @@ async function retrieve(query, { mirrorTopK = 5, wikiTopK = 5, userId = null } =
   return { mirror, wiki };
 }
 
+const { LAYERS } = require('../mirror-taxonomy');
+
 function formatMirrorSection(entries) {
   if (!entries.length) return '';
-  const byCat = new Map();
+  // Grouping by layer → entry_type preserves the taxonomy shape in the
+  // injected context, so Claude sees the structure, not a flat list.
+  const byLayer = new Map();
   for (const e of entries) {
-    if (!byCat.has(e.category)) byCat.set(e.category, []);
-    byCat.get(e.category).push(e);
+    const layer = e.layer || 'world';
+    const type = e.entry_type || 'context';
+    if (!byLayer.has(layer)) byLayer.set(layer, new Map());
+    const byType = byLayer.get(layer);
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(e);
   }
   const lines = ['## Mirror — what I know about Yoel (most relevant to this turn)'];
-  for (const [cat, list] of byCat) {
-    lines.push(`### ${cat}`);
-    for (const e of list) {
-      lines.push(`- (${e.confidence.toFixed(2)}) ${e.content}`);
+  for (const layer of LAYERS) {
+    const byType = byLayer.get(layer);
+    if (!byType) continue;
+    lines.push(`### ${layer}`);
+    for (const [type, list] of byType) {
+      lines.push(`**${type}**`);
+      for (const e of list) {
+        lines.push(`- (${e.confidence.toFixed(2)}) ${e.content}`);
+      }
     }
   }
   return lines.join('\n');

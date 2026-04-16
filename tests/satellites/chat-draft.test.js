@@ -24,7 +24,7 @@ before(async () => {
 });
 after(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
-test('hooks.postResponse — draftSlug forces satellite-building category', async () => {
+test('hooks.postResponse — draftSlug forces entry_type=experiment', async () => {
   ve._setClient({
     embeddings: { create: async () => ({ data: [{ embedding: new Array(3).fill(0.5) }] }) }
   });
@@ -33,7 +33,7 @@ test('hooks.postResponse — draftSlug forces satellite-building category', asyn
       create: async () => ({
         content: [{ type: 'text', text: JSON.stringify({
           new_entries: [
-            { category: 'random-category', content: 'some insight about the workflow', confidence: 0.7 }
+            { entry_type: 'model', content: 'some insight about the workflow', confidence: 0.7 }
           ],
           supersede: [], contradictions: []
         }) }]
@@ -50,6 +50,8 @@ test('hooks.postResponse — draftSlug forces satellite-building category', asyn
   });
 
   const entries = db.getMirrorEntries({ activeOnly: true, limit: 100, userId: testUserId });
-  assert.ok(entries.some(e => e.category === 'satellite-building'));
-  assert.ok(!entries.some(e => e.category === 'random-category'));
+  // Draft synthesis should be pinned to 'experiment', overriding the LLM's
+  // proposed entry_type ('model').
+  assert.ok(entries.some(e => e.entry_type === 'experiment'));
+  assert.ok(!entries.some(e => e.entry_type === 'model'));
 });

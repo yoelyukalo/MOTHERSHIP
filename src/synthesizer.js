@@ -22,6 +22,7 @@ const db = require('./database');
 const ve = require('./memory/vector-engine');
 const { WIKI_SYNTHESIS } = require('./memory/synthesis-prompts');
 const { logAction } = require('./action-logger');
+const { parseLlmJson } = require('./util/parse-llm-json');
 
 const MODEL = process.env.SYNTHESIS_MODEL || 'claude-opus-4-6';
 const MAX_TOKENS = 1500;
@@ -34,21 +35,12 @@ function getClient() {
   return client;
 }
 
-function parseJsonFromText(text) {
-  try { return JSON.parse(text.trim()); }
-  catch {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error('non-JSON synthesis');
-  }
-}
-
 function mirrorSnapshotForPrompt(userId) {
   const rows = db.getMirrorEntries({ activeOnly: true, limit: 50, userId });
   if (!rows.length) return '(no profile yet)';
-  const byCat = {};
-  for (const r of rows) (byCat[r.category] ||= []).push(r.content);
-  return Object.entries(byCat)
+  const byType = {};
+  for (const r of rows) (byType[r.entry_type] ||= []).push(r.content);
+  return Object.entries(byType)
     .map(([k, v]) => `${k}: ${v.slice(0, 5).join('; ')}`)
     .join('\n');
 }
@@ -67,10 +59,9 @@ async function synthesizeFromContent({ content, sourceId, userId }) {
   });
   const text = res.content.find(b => b.type === 'text')?.text || '{}';
 
-  let parsed;
-  try { parsed = parseJsonFromText(text); }
-  catch (err) {
-    db.log('warn', 'synthesizer', `parse failed: ${err.message}`, { text });
+  const parsed = parseLlmJson(text);
+  if (!parsed) {
+    db.log('warn', 'synthesizer', 'parse failed', { head: text.slice(0, 500) });
     return { created: 0, merged: 0 };
   }
 

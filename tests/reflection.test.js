@@ -146,6 +146,39 @@ test('runNow requires userId', async () => {
   await assert.rejects(() => reflection.runNow({}), /userId required/);
 });
 
+test('runNow tolerates ```json code-fenced responses', async () => {
+  const fenced = '```json\n' + JSON.stringify({
+    briefing_md: '## Heads up\n\nHere is a `code` snippet.',
+    patterns: [],
+    self_critique: [],
+    mirror_proposals: []
+  }) + '\n```';
+  reflection._setClient({
+    messages: { create: async () => ({ content: [{ type: 'text', text: fenced }] }) }
+  });
+  const fresh = await users.createUser({ email: 'fenced@x', password: 'p' });
+  const out = await reflection.runNow({ userId: fresh });
+  assert.strictEqual(out.status, 'ok');
+  const latest = db.getLatestReflection({ userId: fresh });
+  assert.ok(latest.briefing_md.includes('Heads up'));
+});
+
+test('runNow logs raw payload on unparseable_response', async () => {
+  reflection._setClient({
+    messages: { create: async () => ({ content: [{ type: 'text', text: 'this is not JSON at all' }] }) }
+  });
+  const fresh = await users.createUser({ email: 'bad@x', password: 'p' });
+  const out = await reflection.runNow({ userId: fresh });
+  assert.strictEqual(out.status, 'failed');
+  assert.strictEqual(out.error, 'unparseable_response');
+  const logs = db.getLogs({ limit: 10, level: 'error' });
+  assert.ok(logs.some(l =>
+    l.source === 'reflection' &&
+    l.message === 'unparseable_response' &&
+    typeof l.data?.head === 'string'
+  ), 'expected reflection error log with head payload');
+});
+
 test('deliverBriefing writes Obsidian file and marks reflection delivered', async () => {
   const os = require('os');
   const vault = path.join(os.tmpdir(), `vault-${Date.now()}`);

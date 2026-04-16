@@ -13,6 +13,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('../database');
 const registry = require('./registry');
+const { parseLlmJson } = require('../util/parse-llm-json');
 
 const MODEL = process.env.REPLAY_MODEL || 'claude-haiku-4-5';
 const MAX_TOKENS = 800;
@@ -28,18 +29,6 @@ function getClient() {
     timeout: 60_000
   });
   return client;
-}
-
-function parseJsonFromText(text) {
-  const trimmed = (text || '').trim();
-  try { return JSON.parse(trimmed); }
-  catch {
-    const m = trimmed.match(/\{[\s\S]*\}/);
-    if (m) {
-      try { return JSON.parse(m[0]); } catch { return null; }
-    }
-    return null;
-  }
 }
 
 // Maps a prompt name to the action kind whose source_ids we should replay.
@@ -58,7 +47,7 @@ async function runOne(body, sampleInput) {
     messages: [{ role: 'user', content: `${body}\n\nINPUT:\n${sampleInput}` }]
   });
   const text = res.content.find(b => b.type === 'text')?.text || '';
-  return parseJsonFromText(text) || { raw: text };
+  return parseLlmJson(text) || { raw: text };
 }
 
 function reconstructInput(action) {

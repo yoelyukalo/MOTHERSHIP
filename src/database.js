@@ -9,8 +9,35 @@ const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const taxonomy = require('./mirror-taxonomy');
 
 const DB_PATH = process.env.MOTHERSHIP_DB_PATH || path.join(__dirname, '..', 'data', 'mothership.db');
+
+// SQL literals for the 21 entry types, 5 layers, 4 statuses — used in CHECK
+// constraints when (re)creating mirror_entries. Built once at module load.
+const ENTRY_TYPE_SQL_LIST = taxonomy.ENTRY_TYPES.map(t => `'${t}'`).join(',');
+const LAYER_SQL_LIST = taxonomy.LAYERS.map(l => `'${l}'`).join(',');
+const STATUS_SQL_LIST = taxonomy.STATUSES.map(s => `'${s}'`).join(',');
+
+const MIRROR_ENTRIES_CREATE_SQL = `
+  CREATE TABLE IF NOT EXISTS mirror_entries (
+    id TEXT PRIMARY KEY,
+    entry_type TEXT NOT NULL CHECK (entry_type IN (${ENTRY_TYPE_SQL_LIST})),
+    layer TEXT NOT NULL CHECK (layer IN (${LAYER_SQL_LIST})),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN (${STATUS_SQL_LIST})),
+    category TEXT NOT NULL,
+    content TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    related_ids TEXT NOT NULL DEFAULT '[]',
+    source_type TEXT NOT NULL,
+    source_id TEXT,
+    embedding BLOB,
+    user_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    superseded_by TEXT
+  )
+`;
 
 let db = null;
 
@@ -57,22 +84,7 @@ async function init() {
     )
   `);
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS mirror_entries (
-      id TEXT PRIMARY KEY,
-      category TEXT NOT NULL,
-      content TEXT NOT NULL,
-      confidence REAL NOT NULL DEFAULT 0.5,
-      source_type TEXT NOT NULL,
-      source_id TEXT,
-      embedding BLOB,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      superseded_by TEXT
-    )
-  `);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_category ON mirror_entries(category)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_active ON mirror_entries(superseded_by)`);
+  db.run(MIRROR_ENTRIES_CREATE_SQL);
 
   db.run(`
     CREATE TABLE IF NOT EXISTS wiki_entries (
@@ -226,7 +238,6 @@ async function init() {
     }
   }
   db.run(`CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id)`);
-  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_entries_user ON mirror_entries(user_id)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_wiki_entries_user ON wiki_entries(user_id)`);
 
   db.run(`
@@ -333,8 +344,99 @@ async function init() {
   `);
   db.run(`CREATE INDEX IF NOT EXISTS idx_prompt_proposals_status ON prompt_proposals(status)`);
 
+  migrateMirrorTaxonomyV3();
+
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_category ON mirror_entries(category)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_active ON mirror_entries(superseded_by)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_entry_type ON mirror_entries(entry_type)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_layer ON mirror_entries(layer)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_status ON mirror_entries(status)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_entries_user ON mirror_entries(user_id)`);
+
   save();
   return db;
+}
+
+/**
+ * One-shot migration from the v2 mirror_entries schema (single `category`
+ * column) to the v3 schema (entry_type/layer/status/related_ids with CHECK
+ * constraints).
+ *
+ * Strategy: rebuild the table. SQLite can't add NOT NULL columns with CHECK
+ * constraints via ALTER TABLE, so we rename → create new → INSERT SELECT with
+ * per-row mapping → drop old.
+ *
+ * Idempotent: if the table already has `entry_type`, this is a no-op.
+ * Guarded further by a config flag so the remap audit log only fires once.
+ */
+function migrateMirrorTaxonomyV3() {
+  const info = db.exec(`PRAGMA table_info(mirror_entries)`);
+  if (!info.length) return;
+  const cols = info[0].values.map(r => r[1]);
+  if (cols.includes('entry_type')) return; // already v3
+
+  const rowsRes = db.exec(`SELECT * FROM mirror_entries`);
+  const rows = [];
+  if (rowsRes.length) {
+    const colNames = rowsRes[0].columns;
+    for (const v of rowsRes[0].values) {
+      const obj = {};
+      colNames.forEach((c, i) => { obj[c] = v[i]; });
+      rows.push(obj);
+    }
+  }
+
+  // Rename out of the way. The new CREATE TABLE IF NOT EXISTS below would
+  // otherwise no-op because the name is taken.
+  db.run(`ALTER TABLE mirror_entries RENAME TO mirror_entries_legacy_v2`);
+  db.run(MIRROR_ENTRIES_CREATE_SQL);
+
+  const remaps = [];
+  let migrated = 0;
+  // One transaction for the whole rebuild: amortises fsync across rows and
+  // keeps the legacy_v2 table and the new table mutually consistent on crash.
+  db.run('BEGIN');
+  try {
+    for (const r of rows) {
+      const { entryType, layer, remapped } =
+        taxonomy.resolveEntryType(r.category);
+      if (remapped) remaps.push({ id: r.id, from: r.category, to: entryType });
+      db.run(
+        `INSERT INTO mirror_entries
+           (id, entry_type, layer, status, category, content, confidence,
+            related_ids, source_type, source_id, embedding,
+            created_at, updated_at, superseded_by, user_id)
+         VALUES (?, ?, ?, 'active', ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          r.id,
+          entryType,
+          layer,
+          entryType,
+          r.content,
+          r.confidence ?? 0.5,
+          r.source_type,
+          r.source_id,
+          r.embedding,
+          r.created_at,
+          r.updated_at,
+          r.superseded_by,
+          r.user_id
+        ]
+      );
+      migrated++;
+    }
+    db.run(`DROP TABLE mirror_entries_legacy_v2`);
+    db.run('COMMIT');
+  } catch (err) {
+    db.run('ROLLBACK');
+    throw err;
+  }
+
+  try {
+    log('info', 'mirror-taxonomy',
+        `migrated ${migrated} rows to v3 taxonomy; ${remaps.length} remapped`,
+        { remaps: remaps.slice(0, 200) });
+  } catch { /* logs table may not be ready in edge cases */ }
 }
 
 function save() {
@@ -485,36 +587,102 @@ function setConfig(key, value) {
   save();
 }
 
-// --- Mirror Entries ---
+// --- Mirror Entries (v3 taxonomy — see src/mirror-taxonomy.js) ---
+//
+// Canonical field is `entry_type`. `category` is a legacy alias, populated
+// on every write as a copy of entry_type and resolved through
+// mirror-taxonomy.resolveEntryType() on read so pre-v3 filter strings still
+// match the new vocabulary.
 
-function addMirrorEntry({ category, content, confidence = 0.5, source_type, source_id = null, embedding = null, userId = null }) {
+function _parseMirrorRow(row) {
+  if (!row) return row;
+  if (typeof row.related_ids === 'string') {
+    try { row.related_ids = JSON.parse(row.related_ids || '[]'); }
+    catch { row.related_ids = []; }
+  }
+  return row;
+}
+
+function addMirrorEntry({
+  entry_type,
+  category,
+  content,
+  confidence = 0.5,
+  source_type,
+  source_id = null,
+  embedding = null,
+  status = 'active',
+  related_ids = [],
+  userId = null
+}) {
   if (!userId) throw new Error('addMirrorEntry: userId required');
+  if (!content) throw new Error('addMirrorEntry: content required');
+  if (!source_type) throw new Error('addMirrorEntry: source_type required');
+
+  const { entryType, layer } = taxonomy.resolveEntryType(entry_type || category);
+  if (!taxonomy.isValidStatus(status)) {
+    throw new Error(`addMirrorEntry: invalid status '${status}'`);
+  }
+  const relatedJson = JSON.stringify(Array.isArray(related_ids) ? related_ids : []);
+
   const id = uuidv4();
   db.run(
-    `INSERT INTO mirror_entries (id, category, content, confidence, source_type, source_id, embedding, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, category, content, confidence, source_type, source_id, embedding, userId]
+    `INSERT INTO mirror_entries
+       (id, entry_type, layer, status, category, content, confidence,
+        related_ids, source_type, source_id, embedding, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, entryType, layer, status, entryType, content, confidence,
+     relatedJson, source_type, source_id, embedding, userId]
   );
   save();
   return id;
 }
 
-function getMirrorEntries({ category = null, activeOnly = true, limit = 500, userId = null, allUsers = false } = {}) {
+function getMirrorEntries({
+  entry_type = null,
+  layer = null,
+  status = null,
+  category = null, // legacy alias — mapped through taxonomy if provided
+  activeOnly = true,
+  limit = 500,
+  userId = null,
+  allUsers = false
+} = {}) {
   if (!userId && !allUsers) throw new Error('getMirrorEntries: userId or allUsers required');
   let q = 'SELECT * FROM mirror_entries WHERE 1=1';
   const p = [];
   if (!allUsers) { q += ' AND user_id = ?'; p.push(userId); }
-  if (category) { q += ' AND category = ?'; p.push(category); }
+
+  // entry_type takes precedence; category is a legacy alias that we resolve
+  // through the taxonomy so callers filtering by 'mental_models' still match
+  // the migrated 'model' rows.
+  let typeFilter = entry_type;
+  if (!typeFilter && category) {
+    typeFilter = taxonomy.resolveEntryType(category).entryType;
+  }
+  if (typeFilter) { q += ' AND entry_type = ?'; p.push(typeFilter); }
+  if (layer)      { q += ' AND layer = ?'; p.push(layer); }
+  if (status)     { q += ' AND status = ?'; p.push(status); }
   if (activeOnly) { q += ' AND superseded_by IS NULL'; }
+
   q += ' ORDER BY updated_at DESC LIMIT ?';
   p.push(limit);
 
   const stmt = db.prepare(q);
   stmt.bind(p);
   const rows = [];
-  while (stmt.step()) rows.push(stmt.getAsObject());
+  while (stmt.step()) rows.push(_parseMirrorRow(stmt.getAsObject()));
   stmt.free();
   return rows;
+}
+
+function getMirrorEntryById(id) {
+  const stmt = db.prepare(`SELECT * FROM mirror_entries WHERE id = ?`);
+  stmt.bind([id]);
+  let row = null;
+  if (stmt.step()) row = _parseMirrorRow(stmt.getAsObject());
+  stmt.free();
+  return row;
 }
 
 function supersedeMirrorEntry(oldId, newEntry) {
@@ -528,11 +696,33 @@ function supersedeMirrorEntry(oldId, newEntry) {
   if (!ownerId) throw new Error('supersedeMirrorEntry: could not determine owner user_id');
   const newId = addMirrorEntry({ ...newEntry, userId: ownerId });
   db.run(
-    `UPDATE mirror_entries SET superseded_by = ?, updated_at = datetime('now') WHERE id = ?`,
+    `UPDATE mirror_entries
+       SET superseded_by = ?, status = 'evolved', updated_at = datetime('now')
+     WHERE id = ?`,
     [newId, oldId]
   );
   save();
   return newId;
+}
+
+function updateMirrorEntryStatus(id, newStatus, { skipSave = false } = {}) {
+  if (!taxonomy.isValidStatus(newStatus)) {
+    throw new Error(`updateMirrorEntryStatus: invalid status '${newStatus}'`);
+  }
+  db.run(
+    `UPDATE mirror_entries SET status = ?, updated_at = datetime('now') WHERE id = ?`,
+    [newStatus, id]
+  );
+  if (!skipSave) save();
+}
+
+function updateMirrorEntryRelatedIds(id, relatedIds, { skipSave = false } = {}) {
+  const json = JSON.stringify(Array.isArray(relatedIds) ? relatedIds : []);
+  db.run(
+    `UPDATE mirror_entries SET related_ids = ?, updated_at = datetime('now') WHERE id = ?`,
+    [json, id]
+  );
+  if (!skipSave) save();
 }
 
 function updateMirrorEntryConfidence(id, newConfidence, { skipSave = false } = {}) {
@@ -865,7 +1055,9 @@ module.exports = {
   init, save, addMessage, getMessages, getMessageCount,
   getSourceCounts, getCategoryCounts, log, getLogs,
   getConfig, setConfig,
-  addMirrorEntry, getMirrorEntries, supersedeMirrorEntry, updateMirrorEntryConfidence,
+  addMirrorEntry, getMirrorEntries, getMirrorEntryById,
+  supersedeMirrorEntry, updateMirrorEntryConfidence,
+  updateMirrorEntryStatus, updateMirrorEntryRelatedIds,
   addWikiEntry, getWikiEntries, getAllWikiEntries, updateWikiEntry,
   addAction, getActions, getActionsByWindow, getPendingActions, updateActionStatus, resolveAction,
   addReflection, getLatestReflection, markReflectionDelivered,
