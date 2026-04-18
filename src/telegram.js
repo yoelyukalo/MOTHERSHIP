@@ -17,6 +17,7 @@ const url = require('./url');
 const { ingestUrl } = require('./ingest-url');
 const conversation = require('./conversation');
 const hooks = require('./conversation-hooks');
+const builderCommands = require('./builders/telegram-commands');
 
 // Helper: send a Mothership reply, chunked to Telegram's 4096-char limit,
 // and persist it as a 'mothership' source row so conversation history sees it.
@@ -103,9 +104,15 @@ function init() {
 
   bot = new TelegramBot(token, { polling: true });
 
+  builderCommands.registerBuilderCommands(bot);
+
   bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const from = msg.from?.first_name || 'Unknown';
+
+    // Builder commands intercept — handles pending state (e.g. project description follow-up)
+    if (await builderCommands.interceptMessage(bot, msg)) return;
+
     const baseMeta = {
       telegram_chat_id: chatId,
       telegram_from: from,
@@ -117,6 +124,9 @@ function init() {
     if (msg.text && msg.text.startsWith('/')) {
       const cmd = msg.text.trim().split(/\s+/)[0];
       const arg = msg.text.trim().slice(cmd.length).trim();
+
+      // Builder commands are handled by bot.onText() listeners registered above
+      if (cmd.startsWith('/builder_')) return;
 
       if (cmd === '/export') {
         const obsidian = require('./exporters/obsidian');
@@ -537,6 +547,12 @@ function init() {
   bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const msgId = query.message.message_id;
+
+    // --- Builder system callbacks ---
+    if (query.data?.startsWith('builder:')) {
+      await builderCommands.handleBuilderCallback(bot, query);
+      return;
+    }
 
     // --- Phase 5: action confirm/reject ---
     if (query.data?.startsWith('action:')) {

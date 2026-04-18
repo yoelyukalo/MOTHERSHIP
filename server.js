@@ -119,6 +119,11 @@ async function boot() {
   reflection.start();
   console.log('  ✔ Reflection agent scheduled (daily)');
 
+  // 4b. Builder system
+  const builders = require('./src/builders');
+  await builders.init();
+  console.log('  ✔ Builder system initialized');
+
   // 5. Start server
   app.listen(PORT, () => {
     console.log(`  ✔ Dashboard live at http://localhost:${PORT}`);

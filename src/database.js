@@ -353,6 +353,10 @@ async function init() {
   db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_status ON mirror_entries(status)`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_mirror_entries_user ON mirror_entries(user_id)`);
 
+  // Builder system tables
+  const builders = require('./builders');
+  builders.initBuilderTables();
+
   save();
   return db;
 }
